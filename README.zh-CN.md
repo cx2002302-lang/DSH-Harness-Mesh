@@ -4,6 +4,8 @@
 
 **发布日期:** 2026-10-18 · **许可:** MIT · **组件:** [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) · [DeepSeekBot](https://github.com/BotHarness/DeepSeekBot)
 
+![架构图](infographic-architecture-zh.jpg)
+
 ---
 
 ## 这是什么?
@@ -85,8 +87,3 @@ node scripts/dev-instance.mjs --home /tmp/botharness-demo --port 31967 \
 
 基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 与 [BotHarness/DeepSeekBot](https://github.com/BotHarness/DeepSeekBot)。补丁部分 MIT。
 
----
-
-*由 MiniMax image-01 生成 · 架构信息图:*
-
-![架构图](infographic-architecture-zh.jpg)

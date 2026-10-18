@@ -4,6 +4,8 @@
 
 **Release date:** 2026-10-18 · **License:** MIT · **Components:** [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) · [DeepSeekBot](https://github.com/BotHarness/DeepSeekBot)
 
+![Architecture](infographic-architecture.jpg)
+
 ---
 
 ## What is this?
@@ -85,8 +87,3 @@ Then open `http://<your-lan-ip>:31967/?token=<DSH_WEB_TOKEN>`.
 
 Built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and [BotHarness/DeepSeekBot](https://github.com/BotHarness/DeepSeekBot). Patches MIT.
 
----
-
-*Generated with MiniMax image-01 · Architecture infographic:*
-
-![Architecture](infographic-architecture.jpg)
