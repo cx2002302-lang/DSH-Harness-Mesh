@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>DSH Harness Mesh v1.0 — Release Notes</title>
+<meta http-equiv="refresh" content="300">
+<style>
+:root { --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --dim:#94a3b8; --acc:#22d3ee; --line:#334155; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.75 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+header { position:sticky; top:0; z-index:9; display:flex; align-items:center; gap:14px; padding:12px 28px; background:rgba(15,23,42,.92); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); }
+header h1 { font-size:17px; margin:0; font-weight:700; letter-spacing:.3px; }
+header .sub { color:var(--dim); font-size:12.5px; }
+.lang { margin-left:auto; display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+.lang button { background:transparent; border:0; color:var(--dim); padding:6px 18px; font-size:13px; cursor:pointer; font-weight:600; }
+.lang button.on { background:var(--acc); color:#06202a; }
+main { max-width:880px; margin:0 auto; padding:28px 24px 80px; }
+h1 { font-size:24px; border-bottom:1px solid var(--line); padding-bottom:10px; }
+h2 { font-size:19px; margin-top:38px; color:#fff; border-left:3px solid var(--acc); padding-left:10px; }
+h3 { font-size:16px; color:var(--acc); }
+img { max-width:100%; border-radius:10px; border:1px solid var(--line); margin:10px 0; }
+pre { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow:auto; font-size:12.5px; line-height:1.6; }
+code { background:#0b1220; border-radius:4px; padding:1px 6px; font-size:.9em; color:#7dd3fc; }
+pre code { background:none; padding:0; color:#cbd5e1; }
+table { border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px; }
+th,td { border:1px solid var(--line); padding:7px 12px; text-align:left; }
+th { background:var(--card); }
+a { color:var(--acc); }
+li { margin:4px 0; }
+hr { border:0; border-top:1px solid var(--line); margin:30px 0; }
+#en,#zh { display:none; }
+#en.show,#zh.show { display:block; }
+footer { text-align:center; color:var(--dim); font-size:12px; padding:30px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>DSH Harness Mesh</h1>
+  <span class="sub">v1.0 · 2026-10-18 · MIT</span>
+  <div class="lang">
+    <button id="btn-en" class="on" onclick="setLang('en')">English</button>
+    <button id="btn-zh" onclick="setLang('zh')">中文</button>
+  </div>
+</header>
+<main>
+  <div id="en" class="show"><h1>DSH Harness Mesh v1.0</h1>
+<p><strong>Release date:</strong> 2026-10-18 · <strong>License:</strong> MIT · <strong>Components:</strong> <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank">DeepSeek Harness</a> · <a href="https://github.com/BotHarness/DeepSeekBot" target="_blank">DeepSeekBot</a></p>
+<hr>
+<h2>What is this?</h2>
+<p><strong>DSH Harness Mesh</strong> — a multi-harness orchestration layer for DeepSeek Harness. One control plane dispatches real work across a fleet of AI coding agents (workbuddy / zcode / kimicode / opencode), and a persistent <strong>Bot Team</strong> (DeepSeekBot) drives them with native tools.</p>
+<pre>
+┌─────────────────────────────────────────────────┐
+│  DSB Bot Team (persistent identities + memory)  │
+│         │  native harness_* tools (82 total)    │
+│  ┌──────▼───────────────────────────────────┐   │
+│  │  Harness Mesh  (plug protocol over ANN)  │   │
+│  └──┬─────────┬─────────┬─────────┬─────────┘   │
+│     ▼         ▼         ▼         ▼             │
+│ workbuddy   zcode    kimicode   opencode        │
+│ (GUI GW)   (CLI)     (native    (native         │
+│                        ACP)       ACP)          │
+└─────────────────────────────────────────────────┘
+</pre>
+<h2>Highlights</h2>
+<h3>1. Bots that actually delegate</h3>
+<p>Every DSB bot ships with <strong>5 native harness tools</strong> — <code>harness_list</code>, <code>harness_dispatch</code>, <code>harness_status</code>, <code>harness_result</code>, <code>harness_cancel</code>. Ask a bot to "have zcode refactor this file" and it discovers the node, dispatches, polls, and reports back. Node configuration is a single source of truth (<code>nodes.json</code>), symlinked across instances — zero drift.</p>
+<h3>2. Four harness forms, one contract</h3>
+<p>The plug protocol (length-framed JSON-RPC + raw byte pipes) drives four completely different agent shapes behind one interface:</p>
+<table>
+<tr><th>Node</th><th>Form</th><th>Notes</th></tr>
+</table>
+<p>|---|---|---|</p>
+<table>
+<tr><th>workbuddy</th><th>GUI Gateway (REST bridge)</th><th>+ UI control tools (10)</th></tr>
+<tr><td>zcode</td><td>CLI-first, thin adapter</td><td>-p engine, auth-safe</td></tr>
+<tr><td>kimicode</td><td>Native ACP CLI</td><td>zero adapter</td></tr>
+<tr><td>opencode</td><td>Native ACP CLI</td><td>zero adapter</td></tr>
+</table>
+<h3>3. Production hardening (this build)</h3>
+<li><strong>crypto.randomUUID polyfill</strong> — DSB's client crashes on LAN origins (non-secure context); patched at the client entry</li>
+<li><strong>Channel-body panel on click</strong> — clicking a bot in the roster now opens the conversation (upstream progressive-migration gap)</li>
+<li><strong>One-click exit</strong> — the Bot-mode rail icon returns to the main GUI</li>
+<li><strong>Auto Bot-mode</strong> — deep-link entry straight into Bot mode</li>
+<li><strong>Diagnostics off by default</strong> — no head-script crash on first paint</li>
+<li><strong>Model switching</strong> — per-bot model presets + per-task model override (<code>harness_config</code>, <code>dispatch.model</code>)</li>
+<li><strong>systemd keepalive</strong> — 60s watchdog, 40s self-heal (verified)</li>
+<li><strong>Direct LAN binding</strong> — reverse proxy retired (it was a failure factory); dsh binds 0.0.0.0 with a pinned token</li>
+<h2>Install</h2>
+<pre>
+git clone https://github.com/BotHarness/DeepSeekBot.git BotHarness
+cd BotHarness
+# apply DreamX patches (see patches/ in the release bundle)
+pnpm install &amp;&amp; pnpm build
+node scripts/dev-instance.mjs --home /tmp/botharness-demo --port 31967 \
+  --trusted-host &lt;your-lan-ip&gt; --no-client-diagnostics
+</pre>
+<p>Then open <code>http://<your-lan-ip>:31967/?token=<DSH_WEB_TOKEN></code>.</p>
+<h2>Verified</h2>
+<li>24/25 headless UI traversal steps clean (the 1 "failure" is the intentional exit navigation)</li>
+<li>60s connection stability, zero reconnects</li>
+<li>Bot → harness dispatch round-trip: PONG in 5s</li>
+<li>Model switch: UI picker (6 models) → save → next request uses it</li>
+<h2>Credits</h2>
+<p>Built on <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank">DeepSeek Harness</a> and <a href="https://github.com/BotHarness/DeepSeekBot" target="_blank">BotHarness/DeepSeekBot</a>. Patches MIT.</p>
+<hr>
+<p>*Generated with MiniMax image-01 · Architecture infographic:*</p>
+<p><img src="infographic-architecture.jpg" alt="Architecture"></p></div>
+  <div id="zh"><h1>DSH Harness Mesh v1.0</h1>
+<p><strong>发布日期:</strong> 2026-10-18 · <strong>许可:</strong> MIT · <strong>组件:</strong> <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank">DeepSeek Harness</a> · <a href="https://github.com/BotHarness/DeepSeekBot" target="_blank">DeepSeekBot</a></p>
+<hr>
+<h2>这是什么?</h2>
+<p><strong>DSH Harness Mesh</strong>——DeepSeek Harness 上的多 harness 调度层。一个控制面把真实工作派发到一队 AI 编程 agent(workbuddy / zcode / kimicode / opencode),并由持久化的 <strong>Bot 团队</strong>(DeepSeekBot)用原生工具驱动它们。</p>
+<pre>
+┌─────────────────────────────────────────────────┐
+│  DSB Bot 团队(持久身份 + 长期记忆)               │
+│         │  原生 harness_* 工具(共 82 个)         │
+│  ┌──────▼───────────────────────────────────┐   │
+│  │  Harness 网格(ANN 上的插头协议)           │   │
+│  └──┬─────────┬─────────┬─────────┬─────────┘   │
+│     ▼         ▼         ▼         ▼             │
+│ workbuddy   zcode    kimicode   opencode        │
+│ (GUI 网关)  (CLI)     (原生      (原生           │
+│                        ACP)       ACP)          │
+└─────────────────────────────────────────────────┘
+</pre>
+<h2>亮点</h2>
+<h3>1. 会真派活的 Bot</h3>
+<p>每个 DSB Bot 自带 <strong>5 个原生 harness 工具</strong>——<code>harness_list</code>、<code>harness_dispatch</code>、<code>harness_status</code>、<code>harness_result</code>、<code>harness_cancel</code>。对 Bot 说"让 zcode 重构这个文件",它会自己发现节点、派发、轮询、拿汇报。节点配置单一来源(<code>nodes.json</code>),跨实例软链——零漂移。</p>
+<h3>2. 四种形态,一套契约</h3>
+<p>插头协议(长度分帧 JSON-RPC + 原始字节管道)把四种完全不同的 agent 形态统一到一个接口后面:</p>
+<table>
+<tr><th>节点</th><th>形态</th><th>备注</th></tr>
+</table>
+<p>|---|---|---|</p>
+<table>
+<tr><th>workbuddy</th><th>GUI 网关(REST 桥)</th><th>+ UI 操控工具(10 个)</th></tr>
+<tr><td>zcode</td><td>CLI-first,薄适配器</td><td>-p 引擎,鉴权安全</td></tr>
+<tr><td>kimicode</td><td>原生 ACP CLI</td><td>零适配器</td></tr>
+<tr><td>opencode</td><td>原生 ACP CLI</td><td>零适配器</td></tr>
+</table>
+<h3>3. 生产加固(本版)</h3>
+<li><strong>crypto.randomUUID polyfill</strong>——DSB 客户端在 LAN 源(非安全上下文)会崩,已在客户端入口修补</li>
+<li><strong>点击开对话面板</strong>——点频道列表里的 Bot 现在会打开会话(补上游渐进迁移的缺口)</li>
+<li><strong>一键退出</strong>——Bot 模式栏图标点一下回主 GUI</li>
+<li><strong>自动进 Bot 模式</strong>——深链直达</li>
+<li><strong>默认关闭诊断</strong>——首屏不再因头部脚本崩溃</li>
+<li><strong>模型切换</strong>——每 Bot 模型预设 + 每任务模型覆盖(<code>harness_config</code>、<code>dispatch.model</code>)</li>
+<li><strong>systemd 保活</strong>——60s 巡检,40s 自愈(已实测)</li>
+<li><strong>直连 LAN</strong>——拆掉反代(它是个故障制造机);dsh 绑 0.0.0.0 + 固定 token</li>
+<h2>安装</h2>
+<pre>
+git clone https://github.com/BotHarness/DeepSeekBot.git BotHarness
+cd BotHarness
+# 打 DreamX 补丁(见发布包的 patches/)
+pnpm install &amp;&amp; pnpm build
+node scripts/dev-instance.mjs --home /tmp/botharness-demo --port 31967 \
+  --trusted-host &lt;你的局域网IP&gt; --no-client-diagnostics
+</pre>
+<p>然后打开 <code>http://<你的局域网IP>:31967/?token=<DSH_WEB_TOKEN></code>。</p>
+<h2>验证</h2>
+<li>无头 UI 遍历 24/25 通过(唯一"失败"项是有意为之的退出跳转)</li>
+<li>60 秒连接稳定性,零重连</li>
+<li>Bot→harness 派活回路:PONG 5 秒到达</li>
+<li>模型切换:UI 选择器(6 个模型)→ 保存 → 下一次请求即用新模型</li>
+<h2>致谢</h2>
+<p>基于 <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank">DeepSeek Harness</a> 与 <a href="https://github.com/BotHarness/DeepSeekBot" target="_blank">BotHarness/DeepSeekBot</a>。补丁部分 MIT。</p>
+<hr>
+<p>*由 MiniMax image-01 生成 · 架构信息图:*</p>
+<p><img src="infographic-architecture-zh.jpg" alt="架构图"></p></div>
+</main>
+<footer>Auto-refresh 5min · <a href="RELEASE-v1.0.md">English Markdown</a> · <a href="RELEASE-v1.0.zh.md">中文 Markdown</a> · Infographic by MiniMax image-01</footer>
+<script>
+function setLang(l) {
+  document.getElementById('en').classList.toggle('show', l === 'en');
+  document.getElementById('zh').classList.toggle('show', l === 'zh');
+  document.getElementById('btn-en').classList.toggle('on', l === 'en');
+  document.getElementById('btn-zh').classList.toggle('on', l === 'zh');
+  document.documentElement.lang = l === 'zh' ? 'zh' : 'en';
+}
+</script>
+</body>
+</html>
