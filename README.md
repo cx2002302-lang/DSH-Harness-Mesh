@@ -50,6 +50,17 @@ The plug protocol (length-framed JSON-RPC + raw byte pipes) drives four complete
 - **systemd keepalive** — 60s watchdog, 40s self-heal (verified)
 - **Direct LAN binding** — reverse proxy retired (it was a failure factory); dsh binds 0.0.0.0 with a pinned token
 
+
+## Screenshots
+
+| Main GUI (icon dock + projects) | Harness console (dispatch + task list) |
+|---|---|
+| ![Main GUI](screenshots/01-main-gui-dock.jpg) | ![Harness console](screenshots/02-harness-console.jpg) |
+
+| DSB Bot mode (roster + inbox) | DSB bot chat (live replies) |
+|---|---|
+| ![DSB Bot mode](screenshots/03-dsb-bot-mode.jpg) | ![DSB bot chat](screenshots/04-dsb-bot-chat.jpg) |
+
 ## Install
 
 ```bash

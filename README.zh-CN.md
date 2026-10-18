@@ -50,6 +50,17 @@
 - **systemd 保活**——60s 巡检,40s 自愈(已实测)
 - **直连 LAN**——拆掉反代(它是个故障制造机);dsh 绑 0.0.0.0 + 固定 token
 
+
+## 界面截图
+
+| 主 GUI(图标坞+项目列表) | Harness 控制台(派发+任务列表) |
+|---|---|
+| ![主 GUI](screenshots/01-main-gui-dock.jpg) | ![Harness 控制台](screenshots/02-harness-console.jpg) |
+
+| DSB Bot 模式(名册+收件箱) | DSB Bot 对话(实时回复) |
+|---|---|
+| ![DSB Bot 模式](screenshots/03-dsb-bot-mode.jpg) | ![DSB Bot 对话](screenshots/04-dsb-bot-chat.jpg) |
+
 ## 安装
 
 ```bash

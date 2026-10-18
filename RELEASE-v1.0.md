@@ -1,4 +1,6 @@
-# DSH Harness Mesh v1.0
+# DSH Harness Mesh
+
+**English** · [中文](README.zh-CN.md) · [Bilingual viewer (click to switch)](index.html)
 
 **Release date:** 2026-10-18 · **License:** MIT · **Components:** [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) · [DeepSeekBot](https://github.com/BotHarness/DeepSeekBot)
 
@@ -47,6 +49,17 @@ The plug protocol (length-framed JSON-RPC + raw byte pipes) drives four complete
 - **Model switching** — per-bot model presets + per-task model override (`harness_config`, `dispatch.model`)
 - **systemd keepalive** — 60s watchdog, 40s self-heal (verified)
 - **Direct LAN binding** — reverse proxy retired (it was a failure factory); dsh binds 0.0.0.0 with a pinned token
+
+
+## Screenshots
+
+| Main GUI (icon dock + projects) | Harness console (dispatch + task list) |
+|---|---|
+| ![Main GUI](screenshots/01-main-gui-dock.jpg) | ![Harness console](screenshots/02-harness-console.jpg) |
+
+| DSB Bot mode (roster + inbox) | DSB bot chat (live replies) |
+|---|---|
+| ![DSB Bot mode](screenshots/03-dsb-bot-mode.jpg) | ![DSB bot chat](screenshots/04-dsb-bot-chat.jpg) |
 
 ## Install
 
