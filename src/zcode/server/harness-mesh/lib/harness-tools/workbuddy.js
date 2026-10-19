@@ -1,4 +1,4 @@
-/** workbuddy 专属工具(WinPC · CHINAMI-EKC4J2J · GUI Gateway 形态)。
+/** workbuddy 专属工具(WinPC · <计算机名> · GUI Gateway 形态)。
  *  编写规范见《harness 专属工具编写规范》(共享 新节点接入包/)。
  *
  *  现状:执行体是 GUI Gateway(动态端口 + Bearer 密码,PEB 自取),经 wb-gateway-adapter
@@ -55,7 +55,7 @@ export const tools = [
       type: "object",
       properties: { out: { type: "string", description: "输出路径(WinPC 本地,如 C:\\wb-mesh\\dsh_shot.png);缺省用默认" } },
     },
-    doc: "返回 {ok, path, bytes}。截图在 WinPC 的 C:\\wb-mesh\\wb-ui-shot.png;要看图让老徐或经共享取。",
+    doc: "返回 {ok, path, bytes}。截图在 WinPC 的 C:\\wb-mesh\\wb-ui-shot.png;要看图让本机用户或经共享取。",
   },
   {
     name: "wb_ui_switch_session",
@@ -97,7 +97,7 @@ export const tools = [
       properties: { text: { type: "string", description: "要发送的消息内容" } },
       required: ["text"],
     },
-    doc: "返回 {ok, runId, status, elapsed, text}。走 Gateway POST /api/v1/runs——不碰界面(不影响老徐用电脑),且能拿到完整结果。等同于派任务,但目标是当前会话。",
+    doc: "返回 {ok, runId, status, elapsed, text}。走 Gateway POST /api/v1/runs——不碰界面(不影响本机用户用电脑),且能拿到完整结果。等同于派任务,但目标是当前会话。",
   },
   {
     name: "wb_ui_rename_session",
@@ -114,11 +114,11 @@ export const tools = [
   },
 ];
 
-/** 经 wb-ui 插头(行协议)执行 UI 命令:dispatch 到 CHINAMI-wb-ui,等终态,summary 是 JSON 回包。 */
+/** 经 wb-ui 插头(行协议)执行 UI 命令:dispatch 到 <计算机名>-wb-ui,等终态,summary 是 JSON 回包。 */
 async function uiCmd(cmd, extra, ctx, opts = {}) {
   const runOnce = async () => {
     const t = await ctx.mesh.dispatch({
-      harness: "CHINAMI-wb-ui",
+      harness: "<计算机名>-wb-ui",
       prompt: JSON.stringify({ cmd, ...(extra ?? {}) }),
       cwd: null,
       origin: "wb-ui",

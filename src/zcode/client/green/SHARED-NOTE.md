@@ -1,6 +1,6 @@
 # 共享组件说明(绿模不随本包分发)
 
-**绿模(ann-agent/harnessd_win/keepalive/mesh-guardian)与 workbuddy 发布包共用同一实例**——zcode 和 workbuddy 在同一台 WinPC(CHINAMI-EKC4J2J)上,一个 7080 端口服务所有 harness。
+**绿模(ann-agent/harnessd_win/keepalive/mesh-guardian)与 workbuddy 发布包共用同一实例**——zcode 和 workbuddy 在同一台 WinPC(<计算机名>)上,一个 7080 端口服务所有 harness。
 
 **为什么不在本包复制一份**:复制部署会产生第二个 guardian/ann-agent——这正是 2026-10-17 修掉的"三解释器各起一份 guardian"多实例 bug 的成因。**绿模是单例资产,只能有一份**。
 

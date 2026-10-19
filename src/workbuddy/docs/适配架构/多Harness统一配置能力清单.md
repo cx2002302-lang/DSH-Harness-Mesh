@@ -41,14 +41,14 @@
 ```jsonc
 // ① 执行口（ACP）
 {"plugId":"workbuddy-exec","harness":"workbuddy","capabilities":["exec"],"kind":"acp",
- "command":"C:\\Users\\Administrator\\.workbuddy\\binaries\\python\\versions\\3.13.12\\pythonw.exe",
+ "command":"C:\Users\<用户名>\\.workbuddy\\binaries\\python\\versions\\3.13.12\\pythonw.exe",
  "args":["C:\\wb-mesh\\wb-gateway-adapter.py"],
- "aliases":["CHINAMI-EKC4J2J-workbuddy"],"enabled":true,
+ "aliases":["<计算机名>-workbuddy"],"enabled":true,
  "env":{"ADAPTER_MAX_TURN_WAIT":"1800","PYTHONIOENCODING":"utf-8"}}
 
 // ② 界面口（行协议）
 {"plugId":"workbuddy-ui","harness":"workbuddy","capabilities":["ui"],"kind":"line",
- "command":"C:\\Users\\Administrator\\.workbuddy\\binaries\\node\\versions\\22.22.2-6\\node.exe",
+ "command":"C:\Users\<用户名>\\.workbuddy\\binaries\\node\\versions\\22.22.2-6\\node.exe",
  "args":["C:\\wb-mesh\\wb-ui.js"],"aliases":["wb-ui"],"enabled":true,
  "env":{"WB_CDP_PORT":"9222"}}
 ```
@@ -94,7 +94,7 @@
 | 失败返回结构 | 统一 `{"ok":false,"cmd":"<cmd>","error":"<原因>"}` ✅ |
 | 成功返回结构 | 统一 `{"ok":true,"cmd":"<cmd>", ...业务字段}` ✅ |
 | 入参命名 | 会话类统一 `name`；文本统一 `text`；路径统一 `out`；新名 `newName` ✅ |
-| plugId 兼容 | 旧 `CHINAMI-EKC4J2J-workbuddy` 通过 `aliases` 保留 ✅ |
+| plugId 兼容 | 旧 `<计算机名>-workbuddy` 通过 `aliases` 保留 ✅ |
 | 未启用拦截 | `enabled=false` 返回明确错误，不静默回退 ✅ |
 | kind 自动识别 | DSH 侧 `plug.list` 拿 kind → `line` 自动切裸行协议，`acp` 走握手 ✅ |
 
@@ -108,7 +108,7 @@
 | 4 | `sessions` 只返回数量/标题，无稳定 ID | 调用方只能用标题模糊匹配 | 可接受（标题唯一性由用户保证）；未来可补 conversationId |
 | 5 | **CDP 与用户操作冲突**（见第五节） | 用户正在用 WorkBuddy 时操作可能失败 | 加"重试 + 状态校验"（见下） |
 
-### 4.3 第五节：CDP 冲突（老徐提出的实际问题）
+### 4.3 第五节：CDP 冲突（本机用户提出的实际问题）
 
 **现象**：用户正在操作 WorkBuddy（切换会话/输入）时，wb-ui 的 CDP 操作可能失败或产生偏差。
 

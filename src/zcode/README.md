@@ -1,7 +1,7 @@
 # zcode 接入发布包
 
 > 版本:v1.0(2026-10-17 22:15)· 状态:**全绿+实机测试通过**(带产物任务独立验证+跨 harness 开团)
-> 适用:WinPC(CHINAMI-EKC4J2J,与 workbuddy 同机)上的 zcode 接入
+> 适用:WinPC(<计算机名>,与 workbuddy 同机)上的 zcode 接入
 
 ## 这个包里有什么
 
@@ -21,9 +21,9 @@
 zcode 的部署是**增量式**——绿模/harnessd/服务端插件都已随 workbuddy 在跑,zcode 只需:
 1. `client/adapters/zcode-adapter.py` → 放共享 wb-green(git 权威源)
 2. `client/config/plugs.json` 的 zcode-exec 条目 → 同步到 harnessd 实际加载的 C:\wb-mesh\plugs.json
-3. 主控侧登记节点 CHINAMI-zcode(plugId=zcode-exec,address <tailnet-ip>)
+3. 主控侧登记节点 <计算机名>-zcode(plugId=zcode-exec,address <tailnet-ip>)
 
-**凭据前提**:app-server 会话路径需 CLI 侧密钥;v2 已切 `zcode -p` 引擎(账号 login 即可用),`zcode login` 由老徐一次性完成。
+**凭据前提**:app-server 会话路径需 CLI 侧密钥;v2 已切 `zcode -p` 引擎(账号 login 即可用),`zcode login` 由本机用户一次性完成。
 
 ## zcode 形态要点(与 workbuddy 的关键差异)
 

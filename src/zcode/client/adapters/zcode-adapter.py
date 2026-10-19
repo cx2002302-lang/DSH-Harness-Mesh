@@ -37,8 +37,8 @@ MAX_TURN_WAIT = float(os.environ.get("ADAPTER_MAX_TURN_WAIT", "1800"))
 NODE_EXE = os.environ.get("NODE_EXE", r"C:\Program Files\nodejs\node.exe")
 ZCODE_CJS = os.environ.get(
     "ZCODE_CJS",
-    r"C:\Users\Administrator\AppData\Local\Programs\ZCode\resources\glm\zcode.cjs")
-USER_HOME = os.environ.get("USERPROFILE") or r"C:\Users\Administrator"
+    os.path.expanduser(r"~\AppData\Local\Programs\ZCode\resources\glm\zcode.cjs"))
+USER_HOME = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 
 # 待响应的 ACP 请求(rid -> method)。die() 退出前逐个回 error——harnessd_win 的
 # task.exit 不回传 stderr,stdout 的 ACP error 是主控唯一能直接看到的死因通道

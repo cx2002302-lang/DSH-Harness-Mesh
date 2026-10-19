@@ -4,7 +4,7 @@
 harnessd 的 Windows 被控端实现（与 208 上 harness-mesh 的 acp-plug 协议兼容）
 
 ## 为什么要写这个
-mesh 侧的节点 `CHINAMI-EKC4J2J-workbuddy` 类型是 `acp-plug`，它不是简单的
+mesh 侧的节点 `<计算机名>-workbuddy` 类型是 `acp-plug`，它不是简单的
 「TCP→stdio 哑桥」。主控的完整流程是：
 
   控制连接(4字节长度帧 JSON-RPC)
@@ -42,14 +42,14 @@ import threading
 import time
 
 # ---- codebuddy CLI 位置 ----
-NODE = r"C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2-6\node.exe"
+NODE = os.path.expanduser(r"~\.workbuddy\binaries\node\versions\22.22.2-6\node.exe")
 
 # 首选：官方独立 CLI（2.168.2，2026-10 装于 C:\wb-mesh\cbcli）。
 # 不要用 app.asar 里解出来的旧快照（2.103.3）——它不认识当前的
 # account-scoped-external-link 认证类型，AuthenticationManager 会无限重试，
 # 导致 session/new 永久挂起（既不返回也不报错）。
 CBJS_NEW = r"C:\wb-mesh\cbcli\node_modules\@tencent-ai\codebuddy-code\dist\codebuddy.js"
-CBJS_OLD = r"C:\Users\Administrator\.workbuddy\temp\app-extracted\cli\dist\codebuddy.js"
+CBJS_OLD = os.path.expanduser(r"~\.workbuddy\temp\app-extracted\cli\dist\codebuddy.js")
 CBJS = CBJS_NEW if os.path.exists(CBJS_NEW) else CBJS_OLD
 
 # 桌面端注入的这些变量会让 CLI 走错认证分支 / 连错端点，spawn 时必须剥掉
@@ -82,7 +82,7 @@ CTL_CONNS = []        # 活跃控制连接(用于 task.exit 事件回传)
 
 # 默认 plugs：即使 mesh 侧 plugId 与本地不完全一致，也有兜底
 DEFAULT_PLUGS = [
-    {"plugId": "CHINAMI-EKC4J2J-workbuddy", "name": "workbuddy",
+    {"plugId": "<计算机名>-workbuddy", "name": "workbuddy",
      "command": NODE, "args": [CBJS, "--acp"]},
     {"plugId": "workbuddy", "name": "workbuddy",
      "command": NODE, "args": [CBJS, "--acp"]},
@@ -163,7 +163,7 @@ def self_report(plugs):
     lan = None
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("192.168.11.208", 80))
+        s.connect((os.environ.get("ANN_PROBE_ADDR", "192.0.2.1"), 80))
         lan = s.getsockname()[0]
         s.close()
     except Exception:

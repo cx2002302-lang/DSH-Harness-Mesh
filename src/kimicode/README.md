@@ -1,7 +1,7 @@
 # kimicode 接入发布包
 
 > 版本:v1.0(2026-10-18 01:10)· 状态:**全绿+实机测试通过**(PONG 4.9s/带产物 34s 独立验证/开团 all_done)
-> 适用:WinPC(CHINAMI-EKC4J2J,与 workbuddy/zcode 同机)上的 kimicode 接入
+> 适用:WinPC(<计算机名>,与 workbuddy/zcode 同机)上的 kimicode 接入
 
 ## 这个包里有什么
 

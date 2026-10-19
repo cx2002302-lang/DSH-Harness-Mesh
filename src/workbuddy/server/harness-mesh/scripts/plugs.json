@@ -2,7 +2,7 @@
   {
     "plugId": "workbuddy",
     "kind": "acp",
-    "command": "C:\\Users\\Administrator\\AppData\\Local\\Programs\\WorkBuddy\\WorkBuddy.exe",
+    "command": "${WB_GUI:-WorkBuddy.exe}",
     "args": [
       "--acp"
     ],

@@ -1,7 +1,7 @@
 # opencode(WinPC)接入发布包
 
 > 版本:v1.0(2026-10-18 01:50)· 状态:**全绿+实机测试通过**(PONG 31.5s/模型复验/带产物 56s 独立验证)
-> 适用:WinPC(CHINAMI-EKC4J2J,与 workbuddy/zcode/kimicode 同机)上的 opencode 接入
+> 适用:WinPC(<计算机名>,与 workbuddy/zcode/kimicode 同机)上的 opencode 接入
 
 ## 这个包里有什么
 

@@ -27,19 +27,19 @@ import urllib.request
 from pathlib import Path
 
 # ---------- 路径常量 ----------
-SHARE = Path(r"D:\AgentHome\DshData")                 # 共享本机视图（= \\192.168.9.100\DshData）
+SHARE = Path(os.environ.get("MESH_SHARE", r"D:\DshData"))                 # 共享本机视图（= \\192.168.9.100\DshData）
 WB_GREEN = SHARE / "wb-green"
 CHANNEL = SHARE / "AI协调频道"
 CHAT_LOG = CHANNEL / "chat.log"
 STATE_FILE = WB_GREEN / "guardian-state.json"
 LOG_FILE = WB_GREEN / "guardian-workbuddy.log"
 
-PYTHON = r"C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\python.exe"
-STDIO_BRIDGE = r"C:\Users\Administrator\.workbuddy\mcp-bin\harness-mcp-stdio.py"
-NODE = r"C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2-6\node.exe"
-CLI = r"C:\Users\Administrator\AppData\Local\Programs\WorkBuddy\resources\app.asar.unpacked\cli\bin\codebuddy"
+PYTHON = os.path.expanduser(r"~\.workbuddy\binaries\python\versions\3.13.12\python.exe")
+STDIO_BRIDGE = os.path.expanduser(r"~\.workbuddy\mcp-bin\harness-mcp-stdio.py")
+NODE = os.path.expanduser(r"~\.workbuddy\binaries\node\versions\22.22.2-6\node.exe")
+CLI = os.path.expanduser(r"~\AppData\Local\Programs\WorkBuddy\resources\app.asar.unpacked\cli\bin\codebuddy")
 
-NODE_NAME = "CHINAMI-EKC4J2J-workbuddy"
+NODE_NAME = "<计算机名>-workbuddy"
 CREATE_NO_WINDOW = 0x08000000  # 无控制台窗口(pythonw 下 subprocess 默认会弹窗)
 POLL_CHANNEL = 15      # 频道哨兵间隔 s
 POLL_LOGIN_FS = 60     # 登录文件检测间隔 s

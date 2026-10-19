@@ -282,14 +282,14 @@ const handlers = {
   },
 
   async send(args) {
-    // 无损平替(老徐要求): 走 Gateway HTTP API 派任务, 零 CDP、零界面操作
+    // 无损平替(本机用户要求): 走 Gateway HTTP API 派任务, 零 CDP、零界面操作
     // 实现在 send_via_api.py(复用适配器的密码发现 + runs API + SSE 等终态)
     if (!args || !args.text) throw new Error('need text');
     const { execFileSync } = require('child_process');
-    const PY = 'C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/python.exe';
-    const SCRIPT = 'C:/wb-mesh/send_via_api.py';
+    const PY = process.env.WB_PYTHON || require('os').homedir() + '/.workbuddy/binaries/python/versions/3.13.12/python.exe';
+    const SCRIPT = (process.env.WB_MESH_DIR || '.') + '/send_via_api.py';
     const out = execFileSync(PY, [SCRIPT, String(args.text)], {
-      encoding: 'utf8', timeout: 200000, cwd: 'C:/wb-mesh', windowsHide: true,
+      encoding: 'utf8', timeout: 200000, cwd: process.env.WB_MESH_DIR || '.', windowsHide: true,
     });
     const lines = out.trim().split(String.fromCharCode(10));
     const line = lines[lines.length - 1];

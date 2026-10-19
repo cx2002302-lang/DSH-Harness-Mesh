@@ -1,2 +1,6 @@
 src/*.zip
 PUBLISHING-STANDARD.md
+__pycache__/
+*.py[cod]
+node_modules/
+*.log

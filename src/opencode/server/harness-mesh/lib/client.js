@@ -243,7 +243,7 @@ window.__ModuleLoader__.load({
     function IconMenu() {
       const s = useStore();
       if (!s.menuOpen || s.open) return null;
-      // 向上展开(bottom 锚定=原始正确方向;老徐 10-18 反馈)
+      // 向上展开(bottom 锚定=原始正确方向;本机用户 10-18 反馈)
       const r = s.anchorRect;
       const vw = (typeof window !== "undefined" && window.innerWidth) || 1280;
       const vh = (typeof window !== "undefined" && window.innerHeight) || 800;
@@ -273,7 +273,7 @@ window.__ModuleLoader__.load({
         React.createElement("div", { style: { borderTop: "1px solid rgba(128,128,128,.14)" } },
           React.createElement("button", { style: item, onClick: () => openView("nodes", "配置") }, "⚙ 配置 · 节点管理"),
         ),
-        // 最底行:📋 项目管理(原输入栏 project-hub 图标并入此处,老徐 10-18 定位置;
+        // 最底行:📋 项目管理(原输入栏 project-hub 图标并入此处,本机用户 10-18 定位置;
         // 转派=程序化点击 project-hub 图标按钮,其面板/状态逻辑仍归它自己)
         React.createElement("div", { style: { borderTop: "1px solid rgba(128,128,128,.14)" } },
           React.createElement("button", { style: item, onClick: () => {
@@ -489,7 +489,7 @@ window.__ModuleLoader__.load({
         React.createElement("input", { style: C.input, placeholder: "command(如 opencode)", value: form.command ?? "", onChange: (e) => set("command", e.target.value) }),
         React.createElement("input", { style: C.input, placeholder: "args(空格分隔,如 acp)", value: form.args ?? "", onChange: (e) => set("args", e.target.value) }),
         form.type === "acp-ssh"
-          ? React.createElement("input", { style: C.input, placeholder: "ssh(用户@主机,如 myxia@192.168.11.206)", value: form.ssh ?? "", onChange: (e) => set("ssh", e.target.value) })
+          ? React.createElement("input", { style: C.input, placeholder: "ssh(用户@主机,如 user@<主机IP>)", value: form.ssh ?? "", onChange: (e) => set("ssh", e.target.value) })
           : null,
         React.createElement("input", { style: C.input, placeholder: "cwd(默认工作目录,可空)", value: form.cwd ?? "", onChange: (e) => set("cwd", e.target.value) }),
         React.createElement("input", { style: C.input, placeholder: "固定模型(可空,如 opencode/deepseek-v4.1-flash;空=用默认)", value: form.model ?? "", onChange: (e) => set("model", e.target.value) }),
@@ -566,7 +566,7 @@ window.__ModuleLoader__.load({
         React.createElement("div", { style: { padding: "6px 8px", border: "1px dashed rgba(128,128,128,.4)", borderRadius: 9 } },
           React.createElement("div", { style: { fontWeight: 600, marginBottom: 4 } }, "AI 辅助配置"),
           React.createElement("textarea", {
-            style: { ...C.input, minHeight: 40 }, placeholder: "用自然语言描述你的 harness,如:「本机的 opencode,命令 opencode acp,用来跑前端任务」或「192.168.11.206 上的 kimi,ssh 用户 myxia」",
+            style: { ...C.input, minHeight: 40 }, placeholder: "用自然语言描述你的 harness,如:「本机的 opencode,命令 opencode acp,用来跑前端任务」或「<主机IP> 上的 kimi,ssh 用户 myxia」",
             value: s.aiText, onChange: (e) => store.set({ aiText: e.target.value }),
           }),
           React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 4 } },
@@ -623,7 +623,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // ==================== 侧栏图标坞(H 版:2026-10-18 老徐确认的形态) ====================
+    // ==================== 侧栏图标坞(H 版:2026-10-18 本机用户确认的形态) ====================
     // 形态:侧栏目标条目(OpenDesign/折叠)压成仅图标+悬停文本;整组网格排列;
     // 插件图标接在其后:机器人第三(跳 GitHub),⚡控制台/📋驾驶舱随后。
     // ★安全纪律(凌晨崩溃根因):MutationObserver 回调【绝不重置已追加标记】;
@@ -663,7 +663,7 @@ window.__ModuleLoader__.load({
         const text = (el.textContent ?? "").trim();
         if (!text) return;
         // ★坞内条目全部压(不只名单里的):名单只用于"找坞"。
-        // 教训:只压名单条目时,"插件"这类后出现的条目没 title 还被格子裁字(老徐 10-18 反馈)
+        // 教训:只压名单条目时,"插件"这类后出现的条目没 title 还被格子裁字(本机用户 10-18 反馈)
         el.dataset.hmCompacted = "1";
         el.title = text;
         el.style.background = "transparent";
@@ -693,10 +693,10 @@ window.__ModuleLoader__.load({
             b.addEventListener("click", () => onOpen());
             nav.appendChild(b);
           };
-          // 顺序即排位:两个目标条目之后,机器人第三个(老徐最终确认:只加这一个,
+          // 顺序即排位:两个目标条目之后,机器人第三个(本机用户最终确认:只加这一个,
           // ⚡控制台/📋驾驶舱不进坞——它们已在聊天框输入区,不重复)
           add("DeepSeekBot · Bot 团队(打开 DSB 实例)", BOT_SVG, () => {
-            window.open("http://192.168.11.208:31967/?token=88888888", "_blank", "noopener");
+            window.open("localStorage.getItem('dsb.botGuiUrl') || 'http://<主控IP>:31967/?token=<token>'", "_blank", "noopener");
           });
         }
         for (const el of nav.querySelectorAll("a, button, li, [role='treeitem'], [role='link']")) compactEntry(el);
@@ -723,7 +723,7 @@ window.__ModuleLoader__.load({
       return {
         trigger: "@",
         name: "harness",
-        order: -10,   // 置顶(菜单按 order 升序,系统文件源是 0/1;老徐要求 harness 在顶部)
+        order: -10,   // 置顶(菜单按 order 升序,系统文件源是 0/1;本机用户要求 harness 在顶部)
         showGroupTitle: true,
         warm() { void warm(); },
         lexicon: () => warmNodes.filter((n) => !n.name.startsWith("fake-")).map((n) => n.name),
@@ -733,7 +733,7 @@ window.__ModuleLoader__.load({
           if (!state.enabled) return [];                       // 总开关关闭:不出候选
           if (warmNodes.length === 0) await warm();
           const q = (req.query ?? "").toLowerCase();
-          // 空 @ 也出节点候选,靠 order:-10 置顶(老徐要求:harness 在菜单顶部,
+          // 空 @ 也出节点候选,靠 order:-10 置顶(本机用户要求:harness 在菜单顶部,
           // 系统文件/子智能体/会话组在下方——不藏,只排最上)
           return warmNodes
             // fake-* 是回环测试资产(回归测试用),不进 @ 菜单(2026-10-18 菜单净化)
@@ -810,7 +810,7 @@ window.__ModuleLoader__.load({
           console.error("[harness-mesh]", label, "注册失败:", error);
         }
       };
-      // "S临时A项"并入菜单:输入栏的 project-hub 图标撤掉(老徐 10-18)
+      // "S临时A项"并入菜单:输入栏的 project-hub 图标撤掉(本机用户 10-18)
       try {
         if (typeof document !== "undefined" && !document.getElementById("hm-hide-hub-icon")) {
           const st = document.createElement("style");
@@ -819,7 +819,7 @@ window.__ModuleLoader__.load({
           document.head.appendChild(st);
         }
       } catch { /* 无 DOM 环境(单测)时跳过 */ }
-      // 菜单失焦自隐(老徐 10-18:对齐系统菜单——点外面就收):
+      // 菜单失焦自隐(本机用户 10-18:对齐系统菜单——点外面就收):
       // 捕获相监听,菜单开时点菜单外任意处即关;点菜单内/图标上不截走
       // (图标自己的 toggle、菜单项自己的逻辑照常跑)。
       safe("harness-mesh: menu-dismiss", () => {

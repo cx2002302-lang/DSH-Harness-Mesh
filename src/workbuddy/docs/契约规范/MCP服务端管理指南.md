@@ -41,7 +41,7 @@
 
 ## 5. 节点管理要点
 
-- 命名规:`<计算机名>-<harness类型>`(如 CHINAMI-EKC4J2J-workbuddy)
+- 命名规:`<计算机名>-<harness类型>`(如 <计算机名>-workbuddy)
 - 新节点接入:`harness-mesh-新节点接入包/`(含《适配器编写指南》——先判定 CLI-first/GUI-first 再动手)
 - 对齐规约:共享 `_对齐/`(manifest+changelog+check_alignment.py);**共享=权威源**
 - IP 漂移:以 `ann-ctrl node list` 的 IP 为准更新节点 address

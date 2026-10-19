@@ -17,7 +17,7 @@ CHAT = Path(r"D:\AgentHome\DshData\AI协调频道\chat.log")
 def main():
     args = [a for a in sys.argv[1:]]
     speaker = "WorkBuddy"
-    if args and args[-1] in ("WorkBuddy", "主控侧(DSH)", "老徐"):
+    if args and args[-1] in ("WorkBuddy", "主控侧(DSH)", "本机用户"):
         speaker = args.pop()
     if args and args[0] == "-f":
         body = Path(args[1]).read_text(encoding="utf-8")

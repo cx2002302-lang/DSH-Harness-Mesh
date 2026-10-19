@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """keepalive.py v2 — WinPC 值守统一保活（单实例锁 + 幂等）
-设计目标（老徐要求：可持续、免人工维护）：
+设计目标（本机用户要求：可持续、免人工维护）：
   - 唯一保活入口：schtasks harness-mesh-keepalive 每 5 分钟触发本脚本
   - 单实例锁：本脚本自身用命名 Mutex 防并发（多触发只跑一个）
   - 只做"缺失则拉起、重复则收敛"，已在跑的正常实例一律不碰（幂等，安全重复执行）
   - 管理范围：ann-agent（隧道）、mesh-guardian（哨兵）
-    · harnessd_win(7080) 交给老徐的 start-all(WbMeshBridge) 管，此处不重复管
+    · harnessd_win(7080) 交给本机用户的 start-all(WbMeshBridge) 管，此处不重复管
     · guardian.py 已废弃（功能被本脚本覆盖），不再拉起
   - 全程 CREATE_NO_WINDOW（pythonw 下不弹窗）
 """
@@ -16,7 +16,7 @@ import subprocess
 import sys
 from datetime import datetime
 
-PYW = r"C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\pythonw.exe"
+PYW = os.path.expanduser(r"~\.workbuddy\binaries\python\versions\3.13.12\pythonw.exe")
 GB = r"D:\AgentHome\DshData\wb-green"
 ANN = os.path.join(GB, "ann-agent.exe")
 LOG = os.path.join(GB, "keepalive.log")
