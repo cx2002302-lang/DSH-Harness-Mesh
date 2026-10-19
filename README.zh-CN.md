@@ -55,13 +55,13 @@
 
 ## 界面截图
 
-| 节点管理(8 个 harness 节点) | 项目会话(网格工作现场) |
+| @ 直达菜单(输 @ 选节点即派) | Harness 控制台(派发+任务列表) |
 |---|---|
-| ![节点管理](screenshots/01-harness-nodes.jpg) | ![项目会话](screenshots/02-project-session.jpg) |
+| ![@ 直达菜单](screenshots/02-at-menu.jpg) | ![Harness 控制台](screenshots/01-harness-console.jpg) |
 
-| Bot 调度 harness 实证 | 每 Bot 模型切换 |
+| Bot 调度 harness(请求+8 节点清单) | Bot 模式(名册+实时对话) |
 |---|---|
-| ![Bot 调 harness](screenshots/03-dsb-harness-call.jpg) | ![模型切换](screenshots/04-dsb-model-picker.jpg) |
+| ![Bot 调度实证](screenshots/05-dsb-harness-call.jpg) | ![Bot 模式](screenshots/04-dsb-roster.jpg) |
 
 ## 安装
 

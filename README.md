@@ -55,13 +55,13 @@ The plug protocol (length-framed JSON-RPC + raw byte pipes) drives four complete
 
 ## Screenshots
 
-| Node management (8 harness nodes) | Project session (mesh work in DSH) |
+| @ dispatch menu (type @, pick a node, go) | Harness console (dispatch + task list) |
 |---|---|
-| ![Node management](screenshots/01-harness-nodes.jpg) | ![Project session](screenshots/02-project-session.jpg) |
+| ![At dispatch menu](screenshots/02-at-menu.jpg) | ![Harness console](screenshots/01-harness-console.jpg) |
 
-| Bot dispatching to the mesh | Per-bot model switching |
+| Bot dispatching to the mesh (request + 8-node report) | Bot mode (roster + live chat) |
 |---|---|
-| ![Bot harness call](screenshots/03-dsb-harness-call.jpg) | ![Model picker](screenshots/04-dsb-model-picker.jpg) |
+| ![Bot harness delegation](screenshots/05-dsb-harness-call.jpg) | ![DSB Bot mode](screenshots/04-dsb-roster.jpg) |
 
 ## Install
 
