@@ -17,17 +17,19 @@ comments in the source):
   2. Auto Bot-mode entry               — deep-link straight into Bot mode
                                          (toggleable via window.__dsbNoAutoBot)
   3. Dual exit back to the main GUI    — both exit entries return to the DSH
-                                         web UI (hardcoded URL, see note below)
+                                         web UI with the launch token, so even a
+                                         fresh browser (no auth cookie) lands OK
   4. Click-to-open channel body panel  — openBot() loaded conversation data
                                          but never opened bh:channel-body, so
                                          clicking a bot in the roster looked dead
 
-Note: patch 3 hardcodes the main GUI URL (http://<MAIN_GUI_HOST>:80/). Change
-the two occurrences in workspace.tsx and bot-mode-sidebar.tsx to your own
-main-GUI URL before building.
+Note: patch 3 hardcodes the main GUI URL + token
+(http://<MAIN_GUI_HOST>:80/?token=<DSH_TOKEN>). Change the two occurrences in
+workspace.tsx and bot-mode-sidebar.tsx to your own main-GUI URL/token before
+building.
 
 diff --git a/packages/client/src/client/bot-mode-sidebar.tsx b/packages/client/src/client/bot-mode-sidebar.tsx
-index c44bb8a..1d47849 100644
+index c44bb8a..ecac93e 100644
 --- a/packages/client/src/client/bot-mode-sidebar.tsx
 +++ b/packages/client/src/client/bot-mode-sidebar.tsx
 @@ -124,7 +124,11 @@ export function BotModeSidebar(props: BotModeSidebarProps): ReactElement {
@@ -38,7 +40,7 @@ index c44bb8a..1d47849 100644
 +            onClick={(event: React.MouseEvent) => {
 +              // ★DreamX 本地补丁(2026-10-18):点击退出的同时回主 GUI(208:80)
 +              props.exitBotMode();
-+              try { window.top?.location.assign('http://<MAIN_GUI_HOST>:80/'); } catch { /* 跨帧失败就退 Bot 模式 */ }
++              try { window.top?.location.assign('http://<MAIN_GUI_HOST>:80/?token=<DSH_TOKEN>'); } catch { /* 跨帧失败就退 Bot 模式 */ }
 +            }}
              onPointerEnter={() => setLogoHover(true)}
              onPointerLeave={() => setLogoHover(false)}
@@ -52,7 +54,7 @@ index 4d6b059..740ae00 100644
  
  export function apply(ctx: ClientContext): void {
 +  // ★DreamX 本地补丁(2026-10-18,与 208 主实例同思路):
-+  // ① crypto.randomUUID polyfill——LAN IP(http://<SERVER_IP>)不是安全上下文,
++  // ① crypto.randomUUID polyfill——LAN IP(http://<MAIN_GUI_HOST>)不是安全上下文,
 +  //   DSB 客户端直接调 crypto.randomUUID 会 TypeError → 连接建不起来。必须最早装上。
 +  // ② 自动进入 Bot 模式——启动后自动点一次"Bot 模式"(原反代的注入脚本,现移入源码)
 +  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID !== 'function') {
@@ -91,7 +93,7 @@ index 4d6b059..740ae00 100644
    const storage = defaultStorage();
    const hmrView =
 diff --git a/packages/client/src/client/workspace.tsx b/packages/client/src/client/workspace.tsx
-index b835902..3c5d7b8 100644
+index b835902..cf57f8b 100644
 --- a/packages/client/src/client/workspace.tsx
 +++ b/packages/client/src/client/workspace.tsx
 @@ -90,6 +90,20 @@ export function Workspace({
@@ -124,7 +126,7 @@ index b835902..3c5d7b8 100644
 +            // ★DreamX 本地补丁(2026-10-18):退出 Bot 模式的同时回主 GUI(208:80)
 +            // (与 bot-mode-sidebar 的 logo 按钮同规则——两个退出入口都回主页面)
 +            options.exitBotMode();
-+            try { window.top?.location.assign('http://<MAIN_GUI_HOST>:80/'); } catch { /* 跨帧失败就退 Bot 模式 */ }
++            try { window.top?.location.assign('http://<MAIN_GUI_HOST>:80/?token=<DSH_TOKEN>'); } catch { /* 跨帧失败就退 Bot 模式 */ }
 +          }}
          >
            <span className="bh-workspace-brand">
