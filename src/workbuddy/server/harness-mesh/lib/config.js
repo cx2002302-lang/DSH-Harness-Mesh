@@ -19,7 +19,7 @@ export function validateNode(name, entry) {
   if (entry.type === "acp-plug") {
     // 插头节点:连被控机 harnessd 的 address + 该机上的 plugId;command 由远端 plugs.json 定义
     if (!/^[^:\s]+:\d+$/.test(entry.address ?? "")) {
-      throw new Error(`harness-mesh: 节点 "${name}" 是 acp-plug 类型,缺少 address(host:port,如 100.64.0.9:7080)`);
+      throw new Error(`harness-mesh: 节点 "${name}" 是 acp-plug 类型,缺少 address(host:port,如 <tailnet-ip>:7080)`);
     }
     if (!entry.plugId) {
       throw new Error(`harness-mesh: 节点 "${name}" 是 acp-plug 类型,缺少 plugId(被控机 plugs.json 里的插头名)`);

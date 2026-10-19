@@ -86,7 +86,6 @@ src/opencode/     原生 ACP,零适配器
 | opencode | Python ≥3.10 + opencode CLI(原生 ACP) | 需 `opencode auth login` |
 
 打包下载:[Releases → v1.0 → 源码 zip](https://github.com/cx2002302-lang/DSH-Harness-Mesh/releases/tag/v1.0)。
-发布规范:[PUBLISHING-STANDARD.md](PUBLISHING-STANDARD.md)。
 
 ## 安装
 

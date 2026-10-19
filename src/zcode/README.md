@@ -21,7 +21,7 @@
 zcode 的部署是**增量式**——绿模/harnessd/服务端插件都已随 workbuddy 在跑,zcode 只需:
 1. `client/adapters/zcode-adapter.py` → 放共享 wb-green(git 权威源)
 2. `client/config/plugs.json` 的 zcode-exec 条目 → 同步到 harnessd 实际加载的 C:\wb-mesh\plugs.json
-3. 主控侧登记节点 CHINAMI-zcode(plugId=zcode-exec,address 100.64.0.11:7080)
+3. 主控侧登记节点 CHINAMI-zcode(plugId=zcode-exec,address <tailnet-ip>)
 
 **凭据前提**:app-server 会话路径需 CLI 侧密钥;v2 已切 `zcode -p` 引擎(账号 login 即可用),`zcode login` 由老徐一次性完成。
 

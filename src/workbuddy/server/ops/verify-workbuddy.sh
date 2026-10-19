@@ -2,9 +2,9 @@
 # workbuddy 插头一键验证:hello 自报 → 探针任务 → 结构化汇报(节点上线后跑)
 set -e
 BASE=http://127.0.0.1:80; JAR=/tmp/hm-verify-jar.txt
-DD=/home/myxia/.local/share/ann-ctrl
+DD=${ANN_DATA:-/var/lib/ann-ctrl}
 rm -f $JAR; curl -s -m 5 -c $JAR -L -o /dev/null "$BASE/?token=88888888"
-IP=$(/home/myxia/.local/bin/ann-ctrl node list --data-dir=$DD 2>/dev/null | awk '$2 ~ /chinami/ && $5=="yes"{print $3}' | head -1 | cut -d, -f1)
+IP=$(ann-ctrl node list --data-dir=$DD 2>/dev/null | awk '$2 ~ /chinami/ && $5=="yes"{print $3}' | head -1 | cut -d, -f1)
 [ -z "$IP" ] && { echo "chinami 不在线"; exit 1; }
 echo "节点 IP: $IP"
 # 节点地址同步(IP 可能变)

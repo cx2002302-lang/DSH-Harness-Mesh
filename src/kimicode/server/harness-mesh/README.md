@@ -30,12 +30,12 @@ node test/e2e-permission.mjs  # 权限链:deny 命中 → approval → 放行
         args: ["acp"]
       kimi-206:
         type: acp-ssh          # 跨机:ssh 隧道跑 `kimi acp`
-        ssh: myxia@192.168.11.206
+        ssh: user@your-host
         command: kimi
         args: ["acp"]
       workbuddy-234:
         type: cli-oneshot      # 兜底:无 ACP 的 harness 走 CLI 一次性
-        ssh: myxia@192.168.9.234
+        ssh: user@your-host
         command: codebuddy
         args: ["-p", "{prompt}"]
 ```

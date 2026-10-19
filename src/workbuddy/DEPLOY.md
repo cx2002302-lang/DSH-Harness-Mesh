@@ -6,14 +6,14 @@
 ## 0. 架构一页图(先看懂再动手)
 
 ```
-┌──────────────────── 208 主控(myxia-SER)────────────────────┐
+┌──────────────────── 主控机(master)────────────────────┐
 │ DSH 服务(dreamx,:80)                                        │
 │  └─ harness-mesh 插件(本包 server/harness-mesh/)            │
 │      · MCP 入口:客户端 7 工具 / admin 9 工具                 │
 │      · 节点表:$DSH_HOME/harness-mesh/nodes.json             │
 │ ann-ctrl(控制面,:8443) + ann-agent-208(SOCKS5 :11090)       │
 └──────────────────┬ ANN 隧道(WireGuard 100.64/10)────────────┘
-                   │ 拨 100.64.0.11:7080(经本机 SOCKS5)
+                   │ 拨 <tailnet-ip>(经本机 SOCKS5)
 ┌──────────────────┴──── WinPC(CHINAMI-EKC4J2J)──────────────┐
 │ ann-agent.exe(绿模入网,--forward 7080=127.0.0.1:7080)        │
 │ harnessd_win(:7080,插头服务端,按 plugs.json spawn)           │

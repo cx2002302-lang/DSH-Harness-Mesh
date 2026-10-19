@@ -87,7 +87,6 @@ What you need on the controlled machine:
 | opencode | Python ≥3.10 + opencode CLI (native ACP) | needs `opencode auth login` |
 
 Download as archive: [Releases → v1.0 → source zips](https://github.com/cx2002302-lang/DSH-Harness-Mesh/releases/tag/v1.0).
-Publishing rules: [PUBLISHING-STANDARD.md](PUBLISHING-STANDARD.md).
 
 ## Install
 

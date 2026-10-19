@@ -13,7 +13,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-CHAT = Path(os.environ.get("DSH_CHANNEL", "/home/myxia/DshData/AI协调频道/chat.log"))
+CHAT = Path(os.environ.get("DSH_CHANNEL", "${DSH_DATA:-/srv/dsh-data}/AI协调频道/chat.log"))
 
 
 def main():

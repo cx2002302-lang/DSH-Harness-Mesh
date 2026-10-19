@@ -28,7 +28,7 @@ mesh 侧的节点 `CHINAMI-EKC4J2J-workbuddy` 类型是 `acp-plug`，它不是�
 用法：
   python C:\\wb-mesh\\harnessd_win.py [--host 0.0.0.0] [--port 7080]
 环境变量：
-  ANN_NODE_IP   自报的 ANN 绿模地址（例如 100.64.0.10）
+  ANN_NODE_IP   自报的 ANN 绿模地址（例如 <tailnet-ip>）
 """
 import argparse
 import json
