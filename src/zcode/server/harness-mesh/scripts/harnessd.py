@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import signal
 import socket
 import struct
@@ -37,6 +38,39 @@ PLUGS_PATH = None     # plugs.json 路径(plug.reload 用)
 CONTROLS = []         # 活跃的控制连接(task.exit 通知用)
 CONTROLS_LOCK = threading.Lock()
 STARTED_AT = time.time()
+AUTH_TOKEN = None     # 鉴权 token(--token 或 HARNESSD_TOKEN);None=不鉴权(默认,行为同旧版)
+
+# ---------- plugs.json 环境变量展开(${VAR} / ${VAR:-默认值}) ----------
+
+_ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def expand_env(value):
+    """递归展开字符串里的 ${VAR}/${VAR:-default};变量不存在且无默认值则原样保留(便于发现漏配)。"""
+    if isinstance(value, str):
+        def repl(m):
+            name, default = m.group(1), m.group(2)
+            if name in os.environ:
+                return os.environ[name]
+            return default if default is not None else m.group(0)
+        return _ENV_RE.sub(repl, value)
+    if isinstance(value, list):
+        return [expand_env(v) for v in value]
+    if isinstance(value, dict):
+        return {k: expand_env(v) for k, v in value.items()}
+    return value
+
+
+def load_plugs(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return expand_env(json.load(f))
+
+
+def authorized(params):
+    """token 鉴权:未配置 AUTH_TOKEN 时一律放行(向后兼容);配了则严格比对。"""
+    if not AUTH_TOKEN:
+        return True
+    return (params or {}).get("token") == AUTH_TOKEN
 
 
 def log(msg):
@@ -80,7 +114,7 @@ def lan_addr():
     """经 UDP connect 技巧取本机内网 IPv4(不真发包)。"""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("192.168.11.208", 8443))
+            s.connect((os.environ.get("ANN_PROBE_ADDR", "192.0.2.1"), 8443))
             return s.getsockname()[0]
     except OSError:
         return None
@@ -180,10 +214,9 @@ def task_close(stream_id):
 
 
 def reload_plugs():
-    """热重载 plugs 文件,返回插头名列表。"""
+    """热重载 plugs 文件(含环境变量展开),返回插头名列表。"""
     global PLUGS
-    with open(PLUGS_PATH, "r", encoding="utf-8") as f:
-        PLUGS = json.load(f)
+    PLUGS = load_plugs(PLUGS_PATH)
     names = [x["plugId"] for x in PLUGS]
     log(f"plug.reload -> {names}")
     return names
@@ -247,6 +280,10 @@ def peel(conn, addr):
         return
     if first.get("method") == "attach":
         conn.settimeout(None)
+        if not authorized(first.get("params")):
+            log(f"attach 鉴权失败 from {addr[0]}:{addr[1]}")
+            conn.close()
+            return
         stream_id = (first.get("params") or {}).get("streamId")
         with LOCK:
             st = STREAMS.get(stream_id)
@@ -275,9 +312,19 @@ def control_loop(conn, addr, first):
             method = msg.get("method")
             params = msg.get("params") or {}
             rid = msg.get("id")
+            if not authorized(params):
+                log(f"control conn {peer} 鉴权失败: method={method}")
+                if rid is not None:
+                    send_frame(conn, {"jsonrpc": "2.0", "id": rid,
+                                      "error": {"code": -32001, "message": "unauthorized: token 缺失或不符(harnessd --token/HARNESSD_TOKEN)"}})
+                msg = recv_frame(conn)
+                if msg is None:
+                    break
+                continue
             if method == "hello":
                 send_frame(conn, {"jsonrpc": "2.0", "id": rid, "result": {
-                    "node": self_report(), "plugs": PLUGS, "protocol": "plug/1"}})
+                    "node": self_report(), "plugs": PLUGS, "protocol": "plug/1",
+                    "auth": bool(AUTH_TOKEN)}})
             elif method == "plug.list":
                 send_frame(conn, {"jsonrpc": "2.0", "id": rid, "result": {"plugs": PLUGS}})
             elif method == "ping":
@@ -364,12 +411,16 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7080)
     parser.add_argument("--plugs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugs.json"))
+    parser.add_argument("--token", default=os.environ.get("HARNESSD_TOKEN"),
+                        help="鉴权 token;不配(且无 HARNESSD_TOKEN 环境变量)则不鉴权,行为同旧版")
     args = parser.parse_args()
 
-    global PLUGS, PLUGS_PATH
+    global PLUGS, PLUGS_PATH, AUTH_TOKEN
     PLUGS_PATH = args.plugs
-    with open(args.plugs, "r", encoding="utf-8") as f:
-        PLUGS = json.load(f)
+    AUTH_TOKEN = args.token or None
+    PLUGS = load_plugs(args.plugs)
+    if AUTH_TOKEN:
+        log("鉴权已开启(token 来自 --token/HARNESSD_TOKEN;主控节点表需配同值 token)")
 
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     signal.signal(signal.SIGINT, lambda *_: sys.exit(0))

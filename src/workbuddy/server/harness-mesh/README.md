@@ -4,10 +4,11 @@ Harness 组网系统的 DSH 主控插件(方案见 `../../harness-mesh-plan.md`)
 
 ## 现状(M1 已交付,2026-10-12)
 
-- 5 工具:`harness_list` / `harness_dispatch` / `harness_status` / `harness_cancel` / `harness_result`
-- 适配器:`acp-stdio`(本机 ACP,惰性 spawn + 常驻复用);`acp-ssh`/`cli-oneshot` 待 M4/M5
+- 8 工具:`harness_list` / `harness_dispatch` / `harness_status` / `harness_cancel` / `harness_result` / `harness_config` / `harness_team` / `harness_team_result`
+- 适配器:`acp-stdio`(本机 ACP,惰性 spawn + 常驻复用);`acp-plug`(被控机 harnessd 插头协议,支持控制连接 token 鉴权);`acp-ssh`/`cli-oneshot` 待 M4/M5
 - 任务状态机:queued → running → succeeded/failed/cancelled/timeout;注册表 `$DSH_HOME/harness-mesh/tasks.jsonl`
 - 人在环:deny 清单(内置 rm -rf / git push / sudo 等,dispatch 可追加)命中 → `dsh-user-approval` 弹窗问你;未命中自动放行
+- 模型:节点固定模型 + 任务级覆盖(`harness_dispatch.model`);被控不支持 `session/set_model` 时默认降级用其默认模型(节点配 `strictModel:true` 可改回严格抛错)
 - 已实测:真实 opencode 端到端派活(建文件、跑命令)、进度事件流、结构化汇报(结论文本 + 文件变更)、权限审批链路
 
 ## 验证

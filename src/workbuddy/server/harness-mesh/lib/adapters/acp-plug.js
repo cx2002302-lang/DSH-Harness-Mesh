@@ -16,11 +16,13 @@ import net from "node:net";
 import { readFile, writeFile } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
 import { AGENT_METHODS, CLIENT_METHODS, PROTOCOL_VERSION, client, ndJsonStream } from "@agentclientprotocol/sdk";
+import { isModelUnsupported } from "./index.js";
 
 /** 长度分帧(4 字节大端 + UTF-8 JSON)的控制连接。 */
 class PlugControl {
-  constructor(socket, onNotification) {
+  constructor(socket, onNotification, token = null) {
     this.socket = socket;
+    this.token = token;
     this.nextId = 1;
     this.pending = new Map();
     this.buffer = Buffer.alloc(0);
@@ -61,7 +63,8 @@ class PlugControl {
   call(method, params = {}) {
     if (this.closed) return Promise.reject(new Error("plug 控制连接已断开"));
     const id = this.nextId++;
-    const body = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, method, params }), "utf8");
+    // 节点配了 token:每个控制请求都带上(harnessd 开启鉴权时校验;没配则行为不变)
+    const body = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, method, params: this.token ? { ...params, token: this.token } : params }), "utf8");
     const header = Buffer.alloc(4);
     header.writeUInt32BE(body.length, 0);
     return new Promise((resolve, reject) => {
@@ -187,7 +190,7 @@ export class AcpPlugAdapter {
         console.log(`[harness-mesh] plug 远程进程退出: stream=${norm.streamId} plug=${norm.plugId} code=${norm.code} (${norm.elapsed_ms}ms${params.reason ? `, reason=${params.reason}` : ""})`);
         if (norm.stderr) console.log(`[harness-mesh] 远程 stderr: ${String(norm.stderr).slice(-400)}`);
       }
-    });
+    }, this.node.token ?? null);
     const hello = await control.call("hello");
     this.control = control;
     this.agentInfo = hello?.node ?? null;
@@ -296,8 +299,9 @@ export class AcpPlugAdapter {
     const dataConn = await dialNode(this.node);
     if (opened) opened.dataConn = dataConn;   // 超时清理要销毁它(09:59 实踩:没销毁→13分钟后的迟到响应溜回来+socket 泄漏)
     console.log(`[harness-mesh] plug 会话建立:dial OK(stream=${streamId})`);
-    // attach 帧(与数据同一连接的首帧)
-    const attachBody = Buffer.from(JSON.stringify({ jsonrpc: "2.0", method: "attach", params: { streamId } }), "utf8");
+    // attach 帧(与数据同一连接的首帧;harnessd 开鉴权时带 token)
+    const attachParams = { streamId, ...(this.node.token ? { token: this.node.token } : {}) };
+    const attachBody = Buffer.from(JSON.stringify({ jsonrpc: "2.0", method: "attach", params: attachParams }), "utf8");
     const attachHeader = Buffer.alloc(4);
     attachHeader.writeUInt32BE(attachBody.length, 0);
     dataConn.write(Buffer.concat([attachHeader, attachBody]));
@@ -384,10 +388,19 @@ export class AcpPlugAdapter {
     });
     const effModel = model ?? this.node.model;
     if (effModel) {
+      // 被控 harness 不支持/拒绝 set_model(kimi 全拒、zcode v2 无此方法)时默认降级:
+      // 记警告后用被控默认模型继续,不让整个任务死在建会话;strictModel:true 时抛错。
       try {
         await connection.agent.request("session/set_model", { sessionId, modelId: effModel });
       } catch (error) {
-        throw new Error(`harness-mesh: 节点 ${this.node.name} 设置模型 ${effModel} 失败: ${String(error?.message ?? error)}`);
+        const msg = String(error?.message ?? error);
+        if (this.node.strictModel) {
+          throw new Error(`harness-mesh: 节点 ${this.node.name} 设置模型 ${effModel} 失败: ${msg}`);
+        }
+        if (!isModelUnsupported(msg)) {
+          throw new Error(`harness-mesh: 节点 ${this.node.name} 设置模型 ${effModel} 失败: ${msg}`);
+        }
+        console.log(`[harness-mesh] 节点 ${this.node.name} 不支持 session/set_model(${effModel}),按被控默认模型继续: ${msg}`);
       }
     }
     return sessionId;

@@ -6,6 +6,28 @@
  *  - harness_result   结构化汇报
  */
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+/** 开团角色表:team_id -> [{harness, role, task_id}](与 lib/hot.js 的 REST 通道同一文件,聚合汇报时补 role)。 */
+const TEAM_FILE = join(process.env.DSH_HOME ?? "/root/.dreamx", "harness-mesh", "team-roles.json");
+
+function teamLoad() {
+  try { return JSON.parse(readFileSync(TEAM_FILE, "utf8")); } catch { return {}; }
+}
+
+function teamSave(teamId, tasks) {
+  try {
+    const all = teamLoad();
+    all[teamId] = tasks.map((t) => ({ harness: t.harness, role: t.role ?? null, task_id: t.task_id }));
+    mkdirSync(dirname(TEAM_FILE), { recursive: true });
+    writeFileSync(TEAM_FILE, JSON.stringify(all, null, 2), "utf8");
+  } catch (error) { console.log(`[harness-mesh] team-roles 落盘失败: ${error}`); }
+}
+
+function teamRoles(teamId) {
+  return new Map((teamLoad()[teamId] ?? []).map((t) => [t.task_id, t.role]));
+}
 
 const NODE_SCHEMA = {
   type: "object",
@@ -262,6 +284,148 @@ export function createTools(state) {
           error: r.error ?? "",
           summary: r.summary ?? "",
           changes: r.changes ?? [],
+        };
+      },
+    }),
+
+    defineTool({
+      name: "harness_team",
+      description: [
+        "开团:一个任务并行派给多个 harness 节点(可给每个成员指定角色),立即返回 team_id 和各成员 task_id。",
+        "编排 SOP:①harness_list 选多个节点 ②harness_team ③harness_status 逐任务跟进",
+        "④全部终态后 harness_team_result 拿聚合汇报。",
+        "task 会原样发给每个成员(role 以【你的角色:xxx】前缀注入);适合多视角并行(实现/审查/测试同时开跑)。",
+        "敏感操作同样走人在环审批;成员里出现不存在节点时整团失败,先用 harness_list 核对。",
+      ].join(""),
+      parameters: {
+        task: { type: "string", required: true, description: "任务内容(自包含,被控 harness 看不到本会话历史)" },
+        members: {
+          type: "array", required: true, description: "成员清单:[{harness, role?}];role 如 实现/审查/测试",
+          items: {
+            type: "object", additionalProperties: false,
+            properties: {
+              harness: { type: "string", required: true, description: "节点名(harness_list 的 name)" },
+              role: { type: "string", description: "角色(会作为 prompt 前缀注入)" },
+            },
+          },
+        },
+        cwd: { type: "string", description: "工作目录(绝对路径);缺省用各节点配置" },
+        timeoutMs: { type: "integer", description: "超时毫秒数,默认 600000(10 分钟)" },
+        deny: { type: "array", items: { type: "string" }, description: "追加的敏感操作正则(命中即问用户)" },
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            team_id: { type: "string", required: true },
+            total: { type: "integer", required: true },
+            tasks: {
+              type: "array", required: true,
+              items: {
+                type: "object", additionalProperties: false,
+                properties: {
+                  harness: { type: "string", required: true },
+                  role: { type: "string", required: true, description: "角色;未指定为空串" },
+                  task_id: { type: "string", required: true },
+                },
+              },
+            },
+          },
+        },
+        render: (_args, value) => [{
+          type: "text",
+          text: `已开团 ${value.team_id}(${value.total} 个成员):${value.tasks.map((t) => `${t.harness}${t.role ? `(${t.role})` : ""}=${t.task_id}`).join(", ")};用 harness_status 逐任务跟进,harness_team_result 取聚合汇报。`,
+        }],
+      },
+      execute: async (args, exec) => {
+        const team = await mesh.dispatchTeam({
+          task: args.task,
+          members: args.members,
+          cwd: args.cwd,
+          timeoutMs: args.timeoutMs,
+          deny: args.deny,
+          approvalAgent: exec.agent,
+          signal: exec.signal,
+        });
+        teamSave(team.team_id, team.tasks);
+        return {
+          team_id: team.team_id,
+          total: team.tasks.length,
+          tasks: team.tasks.map((t) => ({ harness: t.harness, role: t.role ?? "", task_id: t.task_id })),
+        };
+      },
+    }),
+
+    defineTool({
+      name: "harness_team_result",
+      description: [
+        "取开团的聚合汇报:按 team_id 收齐所有成员任务的结构化结果(状态/总结/文件变更/错误)。",
+        "全部成员终态后调用;把各成员的 summary 和 changes 消化后用自己的话向用户汇报,不要原样贴大段文本。",
+      ].join(""),
+      parameters: {
+        team_id: { type: "string", required: true, description: "harness_team 返回的 team_id" },
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            team_id: { type: "string", required: true },
+            total: { type: "integer", required: true },
+            done: { type: "integer", required: true, description: "已到终态的成员数" },
+            all_done: { type: "boolean", required: true },
+            members: {
+              type: "array", required: true,
+              items: {
+                type: "object", additionalProperties: false,
+                properties: {
+                  harness: { type: "string", required: true },
+                  task_id: { type: "string", required: true },
+                  role: { type: "string", required: true },
+                  state: { type: "string", required: true, enum: ["queued", "running", "succeeded", "failed", "cancelled", "timeout"] },
+                  summary: { type: "string", required: true },
+                  changes: {
+                    type: "array", required: true,
+                    items: {
+                      type: "object", additionalProperties: false,
+                      properties: {
+                        title: { type: "string", required: true },
+                        paths: { type: "array", required: true, items: { type: "string" } },
+                      },
+                    },
+                  },
+                  error: { type: "string", required: true },
+                },
+              },
+            },
+          },
+        },
+        render: (_args, value) => [{
+          type: "text",
+          text: [
+            `开团 ${value.team_id}:${value.done}/${value.total} 终态${value.all_done ? "(全部完成)" : "(仍在跑,稍后再取)"}`,
+            ...value.members.map((m) => `- [${m.state}] ${m.harness}${m.role ? `(${m.role})` : ""} ${m.task_id}: ${m.summary || m.error || "(无总结)"}${m.changes.length ? ` | 变更 ${m.changes.length} 处` : ""}`),
+          ].join("\n"),
+        }],
+      },
+      execute: async (args) => {
+        const agg = mesh.teamResult(String(args.team_id ?? ""));
+        const roles = teamRoles(agg.team_id);
+        return {
+          team_id: agg.team_id,
+          total: agg.total,
+          done: agg.done,
+          all_done: agg.all_done,
+          members: agg.members.map((m) => ({
+            harness: m.harness,
+            task_id: m.task_id,
+            role: roles.get(m.task_id) ?? "",
+            state: m.state,
+            summary: m.summary ?? "",
+            changes: m.changes ?? [],
+            error: m.error ?? "",
+          })),
         };
       },
     }),
