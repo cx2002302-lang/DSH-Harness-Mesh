@@ -33,7 +33,7 @@ diff --git a/packages/client/src/client/bot-mode-sidebar.tsx b/packages/client/s
 index c44bb8a..1d47849 100644
 --- a/packages/client/src/client/bot-mode-sidebar.tsx
 +++ b/packages/client/src/client/bot-mode-sidebar.tsx
-@@ -124,7 +124,11 @@ export function BotModeSidebar(props: BotModeSidebarProps): ReactElement {
+@@ -124,7 +124,14 @@ export function BotModeSidebar(props: BotModeSidebarProps): ReactElement {
              data-bh-tour="bot-mode"
              data-exit={morph ? 'true' : undefined}
              aria-label={exitLabel}
@@ -121,7 +121,7 @@ index b835902..3c5d7b8 100644
                  wide
                  useBotModePrefs={usePrefs}
                  setSortMode={(mode) => options.prefs.setSortMode(mode)}
-@@ -256,7 +270,12 @@ function WorkspaceRail({
+@@ -256,7 +270,15 @@ function WorkspaceRail({
          <button
            className="bh-workspace-exit"
            aria-label={t('panel.exit')}
