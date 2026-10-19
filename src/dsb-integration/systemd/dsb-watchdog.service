@@ -1,0 +1,7 @@
+[Unit]
+Description=DSB watchdog: probe every 60s, restart dsb.service if unhealthy
+
+[Service]
+Type=oneshot
+# ↓ token 与 dsb.service 的 DSH_WEB_TOKEN 保持一致;端口如改过同步改
+ExecStart=/bin/bash -c 'curl -sf -o /dev/null --max-time 8 "http://127.0.0.1:31967/?token=change-me-to-your-token" || systemctl --user restart dsb.service'

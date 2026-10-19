@@ -1,0 +1,9 @@
+[Unit]
+Description=Run DSB watchdog every 60s
+
+[Timer]
+OnUnitActiveSec=60
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

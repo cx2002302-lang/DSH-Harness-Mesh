@@ -106,7 +106,8 @@ Download as archive: [Releases → v1.0 → source zips](https://github.com/cx20
 ```bash
 git clone https://github.com/BotHarness/DeepSeekBot.git BotHarness
 cd BotHarness
-# apply DreamX patches (see patches/ in the release bundle)
+# apply DreamX patches (locked baseline + patch + deploy notes: src/dsb-integration/INTEGRATION.md)
+git checkout 810ae53 && git apply ../src/dsb-integration/dsb-dreamx-patches.patch
 pnpm install && pnpm build
 node scripts/dev-instance.mjs --home /tmp/botharness-demo --port 31967 \
   --trusted-host <your-lan-ip> --no-client-diagnostics

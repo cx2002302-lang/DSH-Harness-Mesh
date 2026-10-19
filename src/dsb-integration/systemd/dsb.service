@@ -1,0 +1,17 @@
+[Unit]
+Description=DeepSeekBot dev instance (DSH Harness Mesh bot team)
+After=network.target
+
+[Service]
+Type=simple
+# ↓ 使用前改这三处:固定 token / DSB 源码目录 / 局域网 IP(trusted-host)
+Environment=DSH_WEB_TOKEN=change-me-to-your-token
+WorkingDirectory=/opt/BotHarness
+ExecStart=/usr/bin/node scripts/dev-instance.mjs --home /tmp/botharness-demo --port 31967 --trusted-host 192.168.1.10 --no-client-diagnostics
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=harness-mesh harnessd (plug server, 被控机侧)
+After=network.target
+
+[Service]
+Type=simple
+# ↓ 使用前改:WorkingDirectory=harness-mesh 包内 scripts 所在目录;
+#   HARNESSD_TOKEN 与主控节点表里该节点的 token 配同值(不配则不鉴权,仅限可信内网)
+Environment=HARNESSD_TOKEN=change-me-to-your-token
+WorkingDirectory=/opt/harness-mesh
+ExecStart=/usr/bin/python3 scripts/harnessd.py --host 127.0.0.1 --port 7080 --plugs plugs.json
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

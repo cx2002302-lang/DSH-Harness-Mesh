@@ -18,7 +18,7 @@ WinPC kimicode —— 本包主体:plugs 条目 + 凭据(login)
 `plugs.json` 的 kimicode-exec:
 ```json
 {"plugId":"kimicode-exec","harness":"kimicode","kind":"acp",
- "command":"C:\\Users\\Administrator\\.kimi-code\\bin\\kimi.exe","args":["acp"],
+ "command":"C:\Users\<用户名>\\.kimi-code\\bin\\kimi.exe","args":["acp"],
  "no_auto_port":true,"enabled":true}
 ```
 - **`no_auto_port:true` 必须**:harnessd_win 默认给所有插头追加 `--port <端口>`(为 workbuddy 躲占用加的);kimi 原生 CLI 不认 → arg 解析失败 → 613ms 自杀(2026-10-17 实踩)
@@ -30,7 +30,7 @@ WinPC kimicode —— 本包主体:plugs 条目 + 凭据(login)
 ```bash
 curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/harness-mesh/nodes \
   -H 'Content-Type: application/json' -d '{"node":{
-    "name":"CHINAMI-kimicode","type":"acp-plug",
+    "name":"<计算机名>-kimicode","type":"acp-plug",
     "address":"<tailnet-IP>:7080","plugId":"kimicode-exec",
     "socks":"127.0.0.1:11090",
     "cwd":"C:\\wb-mesh",
@@ -38,7 +38,7 @@ curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/harness-mesh/nodes \
 ```
 - **cwd 必须合法字符串**:kimi 的 ACP 拒 `cwd:null`(`-32602 Invalid params`,2026-10-17 实踩);zcode 适配器宽容 null,别被它的经验误导
 
-### 1.3 凭据(老徐一次性)
+### 1.3 凭据(本机用户一次性)
 
 WinPC 终端跑 `kimi login`(device-code flow,浏览器授权)→ 落 `~/.kimi-code/credentials`,长效。**CLI 独立持证,不依赖桌面登录态**——不会踩 zcode 的签名坑。
 
@@ -46,11 +46,11 @@ WinPC 终端跑 `kimi login`(device-code flow,浏览器授权)→ 落 `~/.kimi-c
 
 ```bash
 # ① PONG(期望 succeeded+PONG,~5s)
-harness_dispatch {"harness":"CHINAMI-kimicode","prompt":"只回复 PONG","cwd":null}
+harness_dispatch {"harness":"<计算机名>-kimicode","prompt":"只回复 PONG","cwd":null}
 # ② 带产物(期望 succeeded+changes 捕获+共享可验的产物)
-harness_dispatch {"harness":"CHINAMI-kimicode","prompt":"在 D:\\AgentHome\\DshData\\wb-green\\kimi-e2e-ok.txt 创建文件,内容:kimi 实机测试通过 <当前时间>;并汇报模型名","cwd":null}
+harness_dispatch {"harness":"<计算机名>-kimicode","prompt":"在 <数据目录>\\wb-green\\kimi-e2e-ok.txt 创建文件,内容:kimi 实机测试通过 <当前时间>;并汇报模型名","cwd":null}
 # ③ 开团(期望 all_done)
-harness_team {"task":"一句话说明角色","members":[{"harness":"CHINAMI-kimicode","role":"执行员"}]}
+harness_team {"task":"一句话说明角色","members":[{"harness":"<计算机名>-kimicode","role":"执行员"}]}
 ```
 **2026-10-18 01:07 实机基线**:① 4.9s ② 34s(Write 偶发内部错→shell 自救,已验证产物) ③ all_done。
 

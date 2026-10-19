@@ -53,13 +53,13 @@ The plug protocol (length-framed JSON-RPC + raw byte pipes) drives four complete
 
 ## Screenshots
 
-| Main GUI (icon dock + projects) | Harness console (dispatch + task list) |
+| @ dispatch menu (type @, pick a node, go) | Harness console (dispatch + task list) |
 |---|---|
-| ![Main GUI](screenshots/01-main-gui-dock.jpg) | ![Harness console](screenshots/02-harness-console.jpg) |
+| ![At dispatch menu](screenshots/02-at-menu.jpg) | ![Harness console](screenshots/01-harness-console.jpg) |
 
-| DSB Bot mode (roster + inbox) | DSB bot chat (live replies) |
+| Bot dispatching to the mesh | Bot mode (roster + live chat) |
 |---|---|
-| ![DSB Bot mode](screenshots/03-dsb-bot-mode.jpg) | ![DSB bot chat](screenshots/04-dsb-bot-chat.jpg) |
+| ![Bot harness delegation](screenshots/05-dsb-harness-call.jpg) | ![DSB Bot mode](screenshots/04-dsb-roster.jpg) |
 
 ## Install
 

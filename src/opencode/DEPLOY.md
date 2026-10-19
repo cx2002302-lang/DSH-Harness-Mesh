@@ -18,7 +18,7 @@ WinPC opencode —— 本包主体:plugs 条目 + opencode.json 钉模型
 `plugs.json` 的 opencode-exec:
 ```json
 {"plugId":"opencode-exec","harness":"opencode","kind":"acp",
- "command":"C:\\Users\\Administrator\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
+ "command":"C:\Users\<用户名>\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
  "args":["acp"],"no_auto_port":true,"enabled":true}
 ```
 - **no_auto_port:true**:harnessd 默认追加 --port;保守不掺(kimi 实踩过 613ms 自杀)
@@ -42,7 +42,7 @@ WinPC opencode —— 本包主体:plugs 条目 + opencode.json 钉模型
 ```bash
 curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/harness-mesh/nodes \
   -H 'Content-Type: application/json' -d '{"node":{
-    "name":"CHINAMI-opencode","type":"acp-plug",
+    "name":"<计算机名>-opencode","type":"acp-plug",
     "address":"<tailnet-IP>:7080","plugId":"opencode-exec",
     "socks":"127.0.0.1:11090","cwd":"C:\\wb-mesh",
     "description":"WinPC opencode(原生 acp,no_auto_port,项目级钉模型)"}}'
@@ -52,9 +52,9 @@ curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/harness-mesh/nodes \
 ### 1.5 验收(三件套)
 
 ```bash
-harness_dispatch {"harness":"CHINAMI-opencode","prompt":"只回复 PONG","cwd":null}          # 期望 ~30s
-harness_dispatch {"harness":"CHINAMI-opencode","prompt":"一句话:模型名+现在几点","cwd":null}  # 期望真模型回答
-harness_dispatch {"harness":"CHINAMI-opencode","prompt":"在 D:\\AgentHome\\DshData\\wb-green\\oc-e2e-ok.txt 建文件(内容:oc 实机测试通过 <时间>);报模型名","cwd":null}  # 期望 ~56s+changes
+harness_dispatch {"harness":"<计算机名>-opencode","prompt":"只回复 PONG","cwd":null}          # 期望 ~30s
+harness_dispatch {"harness":"<计算机名>-opencode","prompt":"一句话:模型名+现在几点","cwd":null}  # 期望真模型回答
+harness_dispatch {"harness":"<计算机名>-opencode","prompt":"在 <数据目录>\\wb-green\\oc-e2e-ok.txt 建文件(内容:oc 实机测试通过 <时间>);报模型名","cwd":null}  # 期望 ~56s+changes
 ```
 **2026-10-18 01:44 实机基线**:① 31.5s ② deepseek-v4.1-flash-free ③ 56s(产物独立验证)。
 

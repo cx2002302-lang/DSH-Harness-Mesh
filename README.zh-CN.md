@@ -105,7 +105,8 @@ src/opencode/     原生 ACP,零适配器
 ```bash
 git clone https://github.com/BotHarness/DeepSeekBot.git BotHarness
 cd BotHarness
-# 打 DreamX 补丁(见发布包的 patches/)
+# 打 DreamX 补丁(锁定基线 + 补丁 + 部署说明见 src/dsb-integration/INTEGRATION.md)
+git checkout 810ae53 && git apply ../src/dsb-integration/dsb-dreamx-patches.patch
 pnpm install && pnpm build
 node scripts/dev-instance.mjs --home /tmp/botharness-demo --port 31967 \
   --trusted-host <你的局域网IP> --no-client-diagnostics

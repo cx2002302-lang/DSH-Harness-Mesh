@@ -14,7 +14,7 @@
 │ ann-ctrl(控制面,:8443) + ann-agent-208(SOCKS5 :11090)       │
 └──────────────────┬ ANN 隧道(WireGuard 100.64/10)────────────┘
                    │ 拨 <tailnet-ip>(经本机 SOCKS5)
-┌──────────────────┴──── WinPC(CHINAMI-EKC4J2J)──────────────┐
+┌──────────────────┴──── WinPC(<计算机名>)──────────────┐
 │ ann-agent.exe(绿模入网,--forward 7080=127.0.0.1:7080)        │
 │ harnessd_win(:7080,插头服务端,按 plugs.json spawn)           │
 │  ├─ workbuddy-exec(acp)→ wb-gateway-adapter.py → GUI Gateway │
@@ -28,7 +28,7 @@
 **前置条件**(缺一不可):
 - [ ] 208:DSH 服务在跑(`systemctl --user is-active dreamx`),ANN 控制面在跑
 - [ ] WinPC:WorkBuddy GUI **已登录**(20 天有效,`wb_ui_status` 可验)
-- [ ] WinPC:能访问共享 `\\192.168.9.100\DshData`
+- [ ] WinPC:能访问共享 `\\<共享IP>\DshData`
 - [ ] 本包(server+client+docs)已就位
 
 ## 1. 全新部署(三站,按序)
@@ -57,6 +57,9 @@ curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/mcp/harness-mesh \
 
 ### 1.2 站二:ANN 网络(约 5 分钟)
 
+> ANN(ann-ctrl + ann-agent)未随本包开源;等价物(tailscale/netbird/自建 WG)需满足的接口要求见
+> `docs/部署参考/ANN-接口要求.md`。下面命令以作者实现的 ann-ctl 为例。
+
 ```bash
 # 1) 208 侧控制面+agent(应已常驻;确认即可)
 systemctl --user is-active ann-ctrl ann-agent-208
@@ -83,6 +86,11 @@ ann-ctrl node list --data-dir=$HOME/.local/share/ann-ctrl | grep <winpc主机名
 #    keepalive 已设 1 分钟巡检;确认:
 schtasks /Query /TN "harness-mesh-keepalive" /FO LIST | findstr State
 # 期望:State=Ready
+
+# 3b)(可选,推荐)harnessd 鉴权:7080 经 ANN 暴露,建议加 token
+#     harnessd 侧:--token <同节点表的值> 或环境变量 HARNESSD_TOKEN
+#     主控侧:节点表该节点加 "token":"<同值>"(见 1.4)
+#     Linux 被控机可用 deploy/systemd/harnessd.service 直接托管(Env HARNESSD_TOKEN)
 
 # 4) 验证插头在册(经 208 拨一次 hello):
 #    我侧节点表先加两条(见 1.4),然后 dispatch 一个 PONG
@@ -155,8 +163,9 @@ wb_ui_status {}
 | 症状 | 第一查 |
 |---|---|
 | dispatch 卡 queued 30s 失败 | 对端 harnessd 半死→重试;持续则看 keepalive 日志 |
+| `unauthorized: token 缺失或不符` | 主控节点表漏配/配错 `token`;或对端 harnessd 没起 `--token`。两边同值即可 |
 | `SOCKS5 拨号超时` | WG 隧道抖动→等 1 分钟自愈;持续看 ann-agent(DERP) |
-| `未发现 gateway` | WorkBuddy GUI 没开→让老徐开 GUI(gateway 是 GUI 本体) |
+| `未发现 gateway` | WorkBuddy GUI 没开→让本机用户开 GUI(gateway 是 GUI 本体) |
 | summary 是 429 | 模型配额→等重置或 `wb_ui_model` 切换模型 |
 | `unknown cmd` | 适配器版本旧→覆盖最新版(每次 spawn 自动加载) |
 | wb_ui_* 返回 NOT_FOUND | 会话不存在或 CDP 撞用户操作→工具已带 5s 重试;仍失败核对 sessions 标题 |
@@ -189,6 +198,6 @@ git log --oneline   # 看历史
 
 ## 8. 联系人/职责
 
-- **老徐**:GUI 登录态唯一人工门(20 天一次)、CDP 冲突时的操作避让
+- **本机用户**:GUI 登录态唯一人工门(20 天一次)、CDP 冲突时的操作避让
 - **workbuddy 侧**:适配器/wb-ui/harnessd_win/保活的开发与排错
 - **主控侧(我)**:插件/节点表/工具/监测/对齐/发布包
