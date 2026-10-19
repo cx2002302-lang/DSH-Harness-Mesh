@@ -53,6 +53,19 @@
 - **直连 LAN**——拆掉反代(它是个故障制造机);dsh 绑 0.0.0.0 + 固定 token
 
 
+## Bot 团队(DeepSeekBot 集成)
+
+网格通过 [DeepSeekBot](https://github.com/BotHarness/DeepSeekBot) 获得持久化的 **Bot 团队**——有身份、有记忆、**原生 harness 工具**(harness_list/dispatch/status/result/cancel)的 Bot,与网格跑在同一个 DSH 实例里。
+
+完整指南(锁定的基线 commit、补丁、部署、已知限制):**[src/dsb-integration/INTEGRATION.md](src/dsb-integration/INTEGRATION.md)**
+
+```bash
+git clone https://github.com/BotHarness/DeepSeekBot.git BotHarness
+cd BotHarness && git checkout 810ae53          # 锁定基线
+git apply ../src/dsb-integration/dsb-dreamx-patches.patch
+pnpm install && pnpm build
+```
+
 ## 界面截图
 
 | @ 直达菜单(输 @ 选节点即派) | Harness 控制台(派发+任务列表) |

@@ -53,6 +53,19 @@ The plug protocol (length-framed JSON-RPC + raw byte pipes) drives four complete
 - **Direct LAN binding** — reverse proxy retired (it was a failure factory); dsh binds 0.0.0.0 with a pinned token
 
 
+## Bot Team (DeepSeekBot integration)
+
+The mesh gets a persistent **Bot Team** through [DeepSeekBot](https://github.com/BotHarness/DeepSeekBot) — bots with identity, memory, and **native harness tools** (harness_list/dispatch/status/result/cancel) running in the same DSH instance.
+
+Full guide (locked baseline commit, patches, deploy, known limits): **[src/dsb-integration/INTEGRATION.md](src/dsb-integration/INTEGRATION.md)**
+
+```bash
+git clone https://github.com/BotHarness/DeepSeekBot.git BotHarness
+cd BotHarness && git checkout 810ae53          # locked baseline
+git apply ../src/dsb-integration/dsb-dreamx-patches.patch
+pnpm install && pnpm build
+```
+
 ## Screenshots
 
 | @ dispatch menu (type @, pick a node, go) | Harness console (dispatch + task list) |

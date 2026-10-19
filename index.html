@@ -88,6 +88,15 @@ footer { text-align:center; color:var(--dim); font-size:12px; padding:30px; bord
 <li><strong>Model switching</strong> — per-bot model presets + per-task model override (<code>harness_config</code>, <code>dispatch.model</code>)</li>
 <li><strong>systemd keepalive</strong> — 60s watchdog, 40s self-heal (verified)</li>
 <li><strong>Direct LAN binding</strong> — reverse proxy retired (it was a failure factory); dsh binds 0.0.0.0 with a pinned token</li>
+<h2>Bot Team (DeepSeekBot integration)</h2>
+<p>The mesh gets a persistent <strong>Bot Team</strong> through <a href="https://github.com/BotHarness/DeepSeekBot" target="_blank">DeepSeekBot</a> — bots with identity, memory, and <strong>native harness tools</strong> (harness_list/dispatch/status/result/cancel) running in the same DSH instance.</p>
+<p>Full guide (locked baseline commit, patches, deploy, known limits): <strong><a href="src/dsb-integration/INTEGRATION.md" target="_blank">src/dsb-integration/INTEGRATION.md</a></strong></p>
+<pre>
+git clone https://github.com/BotHarness/DeepSeekBot.git BotHarness
+cd BotHarness &amp;&amp; git checkout 810ae53          # locked baseline
+git apply ../src/dsb-integration/dsb-dreamx-patches.patch
+pnpm install &amp;&amp; pnpm build
+</pre>
 <h2>Screenshots</h2>
 <table>
 <tr><th>@ dispatch menu (type @, pick a node, go)</th><th>Harness console (dispatch + task list)</th></tr>
@@ -186,6 +195,15 @@ node scripts/dev-instance.mjs --home /tmp/botharness-demo --port 31967 \
 <li><strong>模型切换</strong>——每 Bot 模型预设 + 每任务模型覆盖(<code>harness_config</code>、<code>dispatch.model</code>)</li>
 <li><strong>systemd 保活</strong>——60s 巡检,40s 自愈(已实测)</li>
 <li><strong>直连 LAN</strong>——拆掉反代(它是个故障制造机);dsh 绑 0.0.0.0 + 固定 token</li>
+<h2>Bot 团队(DeepSeekBot 集成)</h2>
+<p>网格通过 <a href="https://github.com/BotHarness/DeepSeekBot" target="_blank">DeepSeekBot</a> 获得持久化的 <strong>Bot 团队</strong>——有身份、有记忆、<strong>原生 harness 工具</strong>(harness_list/dispatch/status/result/cancel)的 Bot,与网格跑在同一个 DSH 实例里。</p>
+<p>完整指南(锁定的基线 commit、补丁、部署、已知限制):<strong><a href="src/dsb-integration/INTEGRATION.md" target="_blank">src/dsb-integration/INTEGRATION.md</a></strong></p>
+<pre>
+git clone https://github.com/BotHarness/DeepSeekBot.git BotHarness
+cd BotHarness &amp;&amp; git checkout 810ae53          # 锁定基线
+git apply ../src/dsb-integration/dsb-dreamx-patches.patch
+pnpm install &amp;&amp; pnpm build
+</pre>
 <h2>界面截图</h2>
 <table>
 <tr><th>@ 直达菜单(输 @ 选节点即派)</th><th>Harness 控制台(派发+任务列表)</th></tr>

@@ -1,0 +1,131 @@
+DSH Harness Mesh — DeepSeekBot integration patches
+===================================================
+
+Baseline: BotHarness/DeepSeekBot @ 810ae53 (feat(mobile): add device-local
+chat backgrounds #2122), built with Node 24 + pnpm.
+
+Apply from the DeepSeekBot repo root:
+
+    git apply dsb-dreamx-all.patch
+    pnpm build
+
+Four local fixes for LAN deployment (all marked with "★DreamX 本地补丁"
+comments in the source):
+
+  1. crypto.randomUUID polyfill        — LAN origins are not secure contexts;
+                                         the DSB client crashes on boot without it
+  2. Auto Bot-mode entry               — deep-link straight into Bot mode
+                                         (toggleable via window.__dsbNoAutoBot)
+  3. Dual exit back to the main GUI    — both exit entries return to the DSH
+                                         web UI (hardcoded URL, see note below)
+  4. Click-to-open channel body panel  — openBot() loaded conversation data
+                                         but never opened bh:channel-body, so
+                                         clicking a bot in the roster looked dead
+
+Note: patch 3 hardcodes the main GUI URL (http://192.168.11.208:80/). Change
+the two occurrences in workspace.tsx and bot-mode-sidebar.tsx to your own
+main-GUI URL before building.
+
+diff --git a/packages/client/src/client/bot-mode-sidebar.tsx b/packages/client/src/client/bot-mode-sidebar.tsx
+index c44bb8a..1d47849 100644
+--- a/packages/client/src/client/bot-mode-sidebar.tsx
++++ b/packages/client/src/client/bot-mode-sidebar.tsx
+@@ -124,7 +124,11 @@ export function BotModeSidebar(props: BotModeSidebarProps): ReactElement {
+             data-bh-tour="bot-mode"
+             data-exit={morph ? 'true' : undefined}
+             aria-label={exitLabel}
+-            onClick={props.exitBotMode}
++            onClick={(event: React.MouseEvent) => {
++              // ★DreamX 本地补丁(2026-10-18):点击退出的同时回主 GUI(208:80)
++              props.exitBotMode();
++              try { window.top?.location.assign('http://192.168.11.208:80/'); } catch { /* 跨帧失败就退 Bot 模式 */ }
++            }}
+             onPointerEnter={() => setLogoHover(true)}
+             onPointerLeave={() => setLogoHover(false)}
+             onFocus={(event) => setLogoFocus(event.currentTarget.matches(':focus-visible'))}
+diff --git a/packages/client/src/client/index.ts b/packages/client/src/client/index.ts
+index 4d6b059..740ae00 100644
+--- a/packages/client/src/client/index.ts
++++ b/packages/client/src/client/index.ts
+@@ -183,6 +183,42 @@ export function installStyles(): () => void {
+ }
+ 
+ export function apply(ctx: ClientContext): void {
++  // ★DreamX 本地补丁(2026-10-18,与 208 主实例同思路):
++  // ① crypto.randomUUID polyfill——LAN IP(http://192.168.11.208)不是安全上下文,
++  //   DSB 客户端直接调 crypto.randomUUID 会 TypeError → 连接建不起来。必须最早装上。
++  // ② 自动进入 Bot 模式——启动后自动点一次"Bot 模式"(原反代的注入脚本,现移入源码)
++  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID !== 'function') {
++    Object.defineProperty(globalThis.crypto, 'randomUUID', {
++      value: function randomUUID(): string {
++        return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (ch) =>
++          (ch ^ (globalThis.crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(ch) / 4)))).toString(16),
++        );
++      },
++      configurable: true,
++    });
++  }
++  if (typeof document !== 'undefined' && !(globalThis as { __dsbNoAutoBot?: boolean }).__dsbNoAutoBot) {
++    const autoEnterBotMode = () => {
++      let rounds = 0;
++      const timer = setInterval(() => {
++        rounds += 1;
++        const els = [...document.querySelectorAll('a,button,div,span,[role="button"],[role="treeitem"]')];
++        const btn = els.find((el) => {
++          const txt = (el.textContent ?? '').trim();
++          return txt.slice(0, 3) === 'Bot' && txt.includes('模式') && txt.length < 20;
++        });
++        if (btn) {
++          (btn as HTMLElement).click();
++          clearInterval(timer);
++        } else if (rounds > 60) {
++          clearInterval(timer);
++        }
++      }, 500);
++    };
++    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(autoEnterBotMode, 1500));
++    else setTimeout(autoEnterBotMode, 1500);
++  }
++
+   ctx.effect(() => clearConversationDrafts);
+   const storage = defaultStorage();
+   const hmrView =
+diff --git a/packages/client/src/client/workspace.tsx b/packages/client/src/client/workspace.tsx
+index b835902..3c5d7b8 100644
+--- a/packages/client/src/client/workspace.tsx
++++ b/packages/client/src/client/workspace.tsx
+@@ -90,6 +90,20 @@ export function Workspace({
+                   registry.open(CHANNEL_BODY_PANEL);
+                   void options.actions.openBot(slug, 'profile');
+                 }}
++                actions={{
++                  ...options.actions,
++                  // ★DreamX 本地补丁(2026-10-18):点频道列表里的 Bot/群组时,先开频道 body 面板
++                  // 再加载对话。根因:openBot 只加载数据不开面板(渐进迁移遗留),用户点 Bot
++                  // 后主区停在"首页" landing,像"没反应"(和 onViewProfile 同款修法)
++                  openBot: (slug: string, view?: 'profile' | 'inbox') => {
++                    registry.open(CHANNEL_BODY_PANEL);
++                    return options.actions.openBot(slug, view);
++                  },
++                  openChannel: (id: string) => {
++                    registry.open(CHANNEL_BODY_PANEL);
++                    return options.actions.openChannel(id);
++                  },
++                }}
+                 wide
+                 useBotModePrefs={usePrefs}
+                 setSortMode={(mode) => options.prefs.setSortMode(mode)}
+@@ -256,7 +270,12 @@ function WorkspaceRail({
+         <button
+           className="bh-workspace-exit"
+           aria-label={t('panel.exit')}
+-          onClick={options.exitBotMode}
++          onClick={(event: React.MouseEvent) => {
++            // ★DreamX 本地补丁(2026-10-18):退出 Bot 模式的同时回主 GUI(208:80)
++            // (与 bot-mode-sidebar 的 logo 按钮同规则——两个退出入口都回主页面)
++            options.exitBotMode();
++            try { window.top?.location.assign('http://192.168.11.208:80/'); } catch { /* 跨帧失败就退 Bot 模式 */ }
++          }}
+         >
+           <span className="bh-workspace-brand">
+             <BotIcon icon={icon} size={24} />
