@@ -1,4 +1,7 @@
-/** M1 权限链路验证:opencode 对 bash 发起权限请求 → deny 命中 → approval 问你 → 放行后继续。 */
+/** M1 权限链路验证:opencode 对 bash 发起权限请求 → deny 命中 → approval 问你 → 放行后继续。
+ *  跑法:DSH_ZAI_API_KEY=<key> node test/e2e-permission.mjs
+ *  DSH_HOME 隔离理由同 e2e-dispatch.mjs(防主 GUI nodes.json 覆盖种子)。 */
+process.env.DSH_HOME = "/tmp/hm-e2e/dsh-home-perm";
 import { apply } from "../lib/index.js";
 
 const registered = [];
@@ -21,7 +24,7 @@ const ctx = {
 };
 await apply(ctx, {
   defaultTimeoutMs: 120000,
-  harnesses: { "opencode-local": { type: "acp-stdio", command: "opencode", args: ["acp"], env: {}, description: "e2e 权限测试" } },
+  harnesses: { "opencode-local": { type: "acp-stdio", command: "opencode", args: ["acp"], env: {}, model: "zai/glm-5.3-flash", description: "e2e 权限测试" } },
 });
 const dispatch = registered.find((t) => t.name === "harness_dispatch");
 const status = registered.find((t) => t.name === "harness_status");

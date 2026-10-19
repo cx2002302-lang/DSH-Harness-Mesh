@@ -575,7 +575,7 @@ window.__ModuleLoader__.load({
         React.createElement("div", { style: { padding: "6px 8px", border: "1px dashed rgba(128,128,128,.4)", borderRadius: 9 } },
           React.createElement("div", { style: { fontWeight: 600, marginBottom: 4 } }, "AI 辅助配置"),
           React.createElement("textarea", {
-            style: { ...C.input, minHeight: 40 }, placeholder: "用自然语言描述你的 harness,如:「本机的 opencode,命令 opencode acp,用来跑前端任务」或「<SSH_HOST> 上的 kimi,ssh 用户 myxia」",
+            style: { ...C.input, minHeight: 40 }, placeholder: "用自然语言描述你的 harness,如:「本机的 opencode,命令 opencode acp,用来跑前端任务」或「另一台机器上的 kimi,ssh 用户 user」",
             value: s.aiText, onChange: (e) => store.set({ aiText: e.target.value }),
           }),
           React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 4 } },
@@ -705,7 +705,12 @@ window.__ModuleLoader__.load({
           // 顺序即排位:两个目标条目之后,机器人第三个(老徐最终确认:只加这一个,
           // ⚡控制台/📋驾驶舱不进坞——它们已在聊天框输入区,不重复)
           add("DeepSeekBot · Bot 团队(打开 DSB 实例)", BOT_SVG, () => {
-            window.open("http://<DSB_HOST>:31967/?token=<DSB_TOKEN>", "_blank", "noopener");
+            // DSB 地址合成(2026-10-19 去硬编码:原写死内网 IP+token,发布即泄密):
+            // 默认同主机 :31967 + 透传当前页 token;部署不同时 localStorage["hm.dsbUrl"] 覆盖。
+            const override = localStorage.getItem("hm.dsbUrl");
+            const token = new URLSearchParams(location.search).get("token");
+            const url = override ?? `${location.protocol}//${location.hostname}:31967/${token ? `?token=${token}` : ""}`;
+            window.open(url, "_blank", "noopener");
           });
         }
         for (const el of nav.querySelectorAll("a, button, li, [role='treeitem'], [role='link']")) compactEntry(el);

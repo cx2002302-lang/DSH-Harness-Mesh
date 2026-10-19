@@ -188,7 +188,15 @@ export class AcpPlugAdapter {
         if (norm.stderr) console.log(`[harness-mesh] 远程 stderr: ${String(norm.stderr).slice(-400)}`);
       }
     });
-    const hello = await control.call("hello");
+    // hello 失败(对端拒/超时/坏包)时必须毁掉 socket——否则连接泄漏:
+    // 此刻 this.control 还没赋值,dispose 管不到这条连接(2026-10-19 全量测试发现)。
+    let hello;
+    try {
+      hello = await control.call("hello");
+    } catch (error) {
+      control.close();
+      throw error;
+    }
     this.control = control;
     this.agentInfo = hello?.node ?? null;
     // 拉插头清单,缓存 plugId→kind:"line" 类插头(如 wb-ui)走裸行协议,不走 ACP。

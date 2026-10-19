@@ -28,6 +28,11 @@ export class TaskStore {
   }
 
   create(entry) {
+    // 缺 task_id 会以 undefined 为键入内存、重启后该 JSONL 行被加载循环跳过——静默丢失。
+    // 入口即拒,不留幽灵记录(2026-10-19 全量测试发现)。
+    if (!entry || typeof entry.task_id !== "string" || !entry.task_id) {
+      throw new Error("harness-mesh: TaskStore.create 需要带字符串 task_id 的任务记录");
+    }
     this.tasks.set(entry.task_id, entry);
     this.#append(entry);
     return entry;

@@ -33,17 +33,18 @@ CHILDREN = [
 ]
 
 # 首次入网参数:优先读同目录 bootstrap.env(新节点接入时按节点填写),无则用内置默认
-# bootstrap.env 示例:
+# bootstrap.env 示例(必填:CODE/SERVER 无默认值,防真实入网码/主控地址进源码):
 #   CODE=xxxxxxxx
 #   HOSTNAME=MY-PC
 #   TAGS=tag:agent
 #   FORWARD=7080=127.0.0.1:7080
+#   SERVER=http://your-mesh-server:8444
 DEFAULTS = {
-    "CODE": "8abc4194",
+    "CODE": "",
     "HOSTNAME": os.environ.get("COMPUTERNAME") or __import__("socket").gethostname(),
     "TAGS": "tag:agent",
     "FORWARD": "7080=127.0.0.1:7080",
-    "SERVER": "http://<ANN_SERVER>:8444",
+    "SERVER": "http://127.0.0.1:8444",
 }
 
 
@@ -67,6 +68,9 @@ def ensure_joined():
     if os.path.exists(os.path.join(AGENT_DIR, "agent.json")):
         return True
     cfg = load_bootstrap_env()
+    if not cfg["CODE"]:
+        print("[guardian] bootstrap.env 缺 CODE(入网码),无法 bootstrap——按文件头示例补齐再启动", flush=True)
+        return False
     args = [AGENT_BIN, "bootstrap",
             "--server=" + cfg["SERVER"],
             "--code=" + cfg["CODE"],

@@ -77,10 +77,11 @@ def _recv_exact(sock, n):
 # ---------- 自报与插头清单 ----------
 
 def lan_addr():
-    """经 UDP connect 技巧取本机内网 IPv4(不真发包)。"""
+    """经 UDP connect 技巧取本机内网 IPv4(不真发包)。
+    目标用 TEST-NET-1 文档段(192.0.2.x,RFC 5737)——只为让内核选出网卡,包根本发不出去。"""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("<ANN_SERVER>", 8443))
+            s.connect(("192.0.2.1", 8443))
             return s.getsockname()[0]
     except OSError:
         return None

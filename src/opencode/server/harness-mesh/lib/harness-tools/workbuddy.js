@@ -114,11 +114,24 @@ export const tools = [
   },
 ];
 
-/** 经 wb-ui 插头(行协议)执行 UI 命令:dispatch 到 CHINAMI-wb-ui,等终态,summary 是 JSON 回包。 */
+/** 经 wb-ui 插头(行协议)执行 UI 命令:dispatch 到 wb-ui 节点,等终态,summary 是 JSON 回包。 */
+/** 找 wb-ui 节点(2026-10-19 全量测试发现:原来硬编码了部署机主机名,换机器即死):
+ *  1) plugId === "workbuddy-ui" 优先(语义最准) 2) 名字含 wb-ui 兜底 3) 都没有 → null(调用方报错) */
+function findWbUiNode(nodes) {
+  const list = nodes.list();
+  return list.find((n) => n.plugId === "workbuddy-ui")
+      ?? list.find((n) => /wb-ui/i.test(n.name ?? ""))
+      ?? null;
+}
+
 async function uiCmd(cmd, extra, ctx, opts = {}) {
   const runOnce = async () => {
+    const uiNode = findWbUiNode(ctx.nodes);
+    if (!uiNode) {
+      return { ok: false, state: "failed", error: "未找到 wb-ui 节点(plugId=workbuddy-ui 或名字含 wb-ui)", available: ctx.nodes.list().map((n) => n.name) };
+    }
     const t = await ctx.mesh.dispatch({
-      harness: "CHINAMI-wb-ui",
+      harness: uiNode.name,
       prompt: JSON.stringify({ cmd, ...(extra ?? {}) }),
       cwd: null,
       origin: "wb-ui",

@@ -22,7 +22,7 @@
     "kind": "acp",
     "command": "python3",
     "args": [
-      "/tmp/adapter-test/wb-gateway-adapter.py"
+      "/root/data/myagents/DSH_PiDurable/harness-mesh/scripts/wb-gateway-adapter.py"
     ],
     "cwd": "/tmp",
     "model": null,

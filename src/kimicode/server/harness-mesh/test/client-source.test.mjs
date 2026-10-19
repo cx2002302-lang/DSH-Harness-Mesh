@@ -83,10 +83,11 @@ const filtered = await src.candidates({}, { query: "kimi" });
 console.log("candidates(kimi):", filtered.map((c) => c.name).join(", "));
 if (filtered.length !== 1 || filtered[0].name !== "kimi-206") { console.error("FAIL: 过滤不对"); process.exit(1); }
 
-// ---- 4. onPick ----
+// ---- 4. onPick(2026-10-19 起回 {claim} 进命令态;{text} 时代 Enter 被框架当普通聊天) ----
 const pick = src.onPick({ candidate: { name: "kimi-206" } });
-console.log("onPick:", JSON.stringify(pick));
-if (pick.text !== "@kimi-206 ") { console.error("FAIL: onPick 文本不对"); process.exit(1); }
+console.log("onPick:", JSON.stringify({ claim: { name: pick.claim?.name, token: pick.claim?.token, hint: pick.claim?.hint } }));
+if (pick.claim?.token !== "@kimi-206 ") { console.error("FAIL: onPick 应回 claim 且 token 带分隔空格"); process.exit(1); }
+if (typeof pick.claim?.submit !== "function") { console.error("FAIL: claim 缺 submit"); process.exit(1); }
 
 // ---- 5. matchEnter ----
 const noMatch = await src.matchEnter({}, "普通一句话");
@@ -98,7 +99,7 @@ if (unknown !== undefined) { console.error("FAIL: 未知节点不该 claim"); pr
 const claim = await src.matchEnter({}, "@kimi-206 帮我把登录页改成暗色");
 if (!claim?.claim) { console.error("FAIL: 命中节点该 claim"); process.exit(1); }
 console.log("claim token:", claim.claim.token, "| hint:", claim.claim.hint);
-if (claim.claim.token !== "@kimi-206") { console.error("FAIL: claim token 不对"); process.exit(1); }
+if (claim.claim.token !== "@kimi-206 ") { console.error("FAIL: claim token 不对"); process.exit(1); }
 
 // ---- 6. claim.submit 直连派发 ----
 const outcome = await claim.claim.submit("帮我把登录页改成暗色");

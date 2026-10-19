@@ -84,12 +84,20 @@ export class AcpStdioAdapter {
     const onEarlyExit = (code) => { exitedEarly = code; };
     child.once("exit", onEarlyExit);
 
-    const agentInfo = await connection.agent.request(AGENT_METHODS.initialize, {
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {
-        fs: { readTextFile: true, writeTextFile: true },
-      },
-    });
+    // initialize 失败(协议不兼容/对端报错/超时)时,已 spawn 的子进程必须杀掉,
+    // 否则进程泄漏:child 没赋给 this.child,dispose 也管不到它(2026-10-19 全量测试发现)。
+    let agentInfo;
+    try {
+      agentInfo = await connection.agent.request(AGENT_METHODS.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {
+          fs: { readTextFile: true, writeTextFile: true },
+        },
+      });
+    } catch (error) {
+      try { child.kill("SIGTERM"); } catch { /* 已退出 */ }
+      throw error;
+    }
     if (exitedEarly !== null) {
       throw new Error(`harness-mesh: 被控进程 ${this.node.command} 启动后即退出(code=${exitedEarly})`);
     }

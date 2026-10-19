@@ -14,9 +14,10 @@ import { TaskStore } from "./task-store.js";
 import { MeshController } from "./mesh.js";
 import { createTools } from "./tools.js";
 import { registerRoutes } from "./http.js";
+import { startModelBridge } from "./model-bridge.js";
 
 const name = "harness-mesh";
-const inject = ["tools", "connection", "agentDefaultModel", "llm"];
+const inject = ["tools", "connection", "agentDefaultModel", "llm", "settings"];
 
 const HarnessEntry = z.object({
   /** 适配器类型:本机 ACP / 跨机 SSH 隧道 ACP / 插头协议(被控机 harnessd)/ CLI 一次性兜底 */
@@ -42,6 +43,8 @@ const HarnessEntry = z.object({
 const Config = z.object({
   defaultTimeoutMs: z.number().step(1).min(1000).default(600000),
   harnesses: z.dict(HarnessEntry).default({}),
+  /** 模型桥:把节点背后的模型自动注册进 llm-pi-ai 供应商目录(随 nodes.json 热同步) */
+  modelBridge: z.object({ enable: z.boolean().default(false) }).default({}),
 });
 
 let applyCount = 0;
@@ -59,8 +62,13 @@ function apply(ctx, config) {
     const disposers = tools.map((tool) => ctx.tools.register(tool));
     // 路由也进 effect:apply 重入(配置热更/双半身装载)时先清理后重注册,避免重复注册报错
     const disposeRoutes = registerRoutes(ctx, mesh, nodes);
+    // 模型桥:仅在显式开启且实例有 settings+llm 服务时激活(默认关,主 GUI 不需要)
+    const disposeBridge = normalized.modelBridge.enable
+      ? startModelBridge(ctx, join(resolveDshHome(), "harness-mesh", "nodes.json"), () => nodes.list(), join(resolveDshHome(), "harness-mesh"), (line) => { console.log(line); ctx.logger.info(line); })
+      : () => {};
     return () => {
       for (const dispose of disposers) dispose();
+      disposeBridge();
       void disposeRoutes();
       void mesh.dispose();
     };

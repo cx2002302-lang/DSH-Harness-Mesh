@@ -28,7 +28,7 @@ export function validateNode(name, entry) {
     throw new Error(`harness-mesh: 节点 "${name}" 缺少 command`);
   }
   if (entry.type === "acp-ssh" && !entry.ssh) {
-    throw new Error(`harness-mesh: 节点 "${name}" 是 acp-ssh 类型,缺少 ssh 目标(如 myxia@<SSH_HOST>)`);
+    throw new Error(`harness-mesh: 节点 "${name}" 是 acp-ssh 类型,缺少 ssh 目标(如 user@your-host)`);
   }
   return {
     name,
@@ -52,12 +52,16 @@ export function validateNode(name, entry) {
 
 /**
  * @param config - 经 schemastery 校验后的插件配置
- * @returns {{ defaultTimeoutMs: number, harnesses: Record<string, object> }}
+ * @returns {{ defaultTimeoutMs: number, harnesses: Record<string, object>, modelBridge: { enable: boolean } }}
  */
 export function normalizeConfig(config) {
   const harnesses = {};
   for (const [name, entry] of Object.entries(config?.harnesses ?? {})) {
     harnesses[name] = validateNode(name, entry);
   }
-  return { defaultTimeoutMs: config?.defaultTimeoutMs ?? 600000, harnesses };
+  return {
+    defaultTimeoutMs: config?.defaultTimeoutMs ?? 600000,
+    harnesses,
+    modelBridge: { enable: config?.modelBridge?.enable === true },
+  };
 }

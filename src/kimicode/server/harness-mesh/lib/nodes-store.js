@@ -34,8 +34,14 @@ export class NodesStore {
         const data = JSON.parse(readFileSync(this.file, "utf8"));
         const deleted = Array.isArray(data?.deleted) ? data.deleted.filter((n) => typeof n === "string") : [];
         for (const name of deleted) this.nodes.delete(name);
+        // 逐条校验:一条坏条目只丢自己,不拖累后面的好条目(2026-10-19 全量测试发现:
+        // 原来整个 nodes 数组在同一个 try 里,一条非法 → 其后条目被静默丢弃)
         for (const node of data?.nodes ?? []) {
-          this.nodes.set(node.name, validateNode(node.name, node));
+          try {
+            this.nodes.set(node.name, validateNode(node.name, node));
+          } catch (error) {
+            console.log(`[harness-mesh] nodes.json 跳过非法条目 "${node?.name}": ${String(error?.message ?? error)}`);
+          }
         }
       } catch (error) {
         console.log(`[harness-mesh] nodes.json 损坏,已忽略(继续用 patch 种子): ${String(error)}`);

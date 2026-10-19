@@ -49,6 +49,8 @@ The plug protocol (length-framed JSON-RPC + raw byte pipes) drives four complete
 - **Auto Bot-mode** — deep-link entry straight into Bot mode
 - **Diagnostics off by default** — no head-script crash on first paint
 - **Model switching** — per-bot model presets + per-task model override (`harness_config`, `dispatch.model`)
+- **Model bridge (v1.1)** — models pinned on mesh nodes auto-register as LLM providers (hot-sync, zero restart)
+- **Full test campaign (v1.1)** — 286 node:test unit tests green + e2e trio (dispatch / permission / cancel) on real links
 - **systemd keepalive** — 60s watchdog, 40s self-heal (verified)
 - **Direct LAN binding** — reverse proxy retired (it was a failure factory); dsh binds 0.0.0.0 with a pinned token
 

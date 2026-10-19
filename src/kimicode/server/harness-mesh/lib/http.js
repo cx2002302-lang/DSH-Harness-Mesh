@@ -10,7 +10,6 @@
  *  - GET      /api/harness-mesh/tasks
  *  - POST     /api/harness-mesh/cancel    {task_id}
  *  - POST     /api/harness-mesh/permission {task_id, allow}
- *  - GET      /api/harness-mesh/models
  *  - POST     /api/harness-mesh/ai-config {description}
  *  - POST     /api/mcp/harness-mesh       MCP(Streamable HTTP)JSON-RPC 入口
  */
@@ -56,7 +55,6 @@ export function registerRoutes(ctx, mesh, nodes) {
     ["/api/harness-mesh/tasks", ["GET"]],
     ["/api/harness-mesh/cancel", ["POST"]],
     ["/api/harness-mesh/permission", ["POST"]],
-    ["/api/harness-mesh/models", ["GET"]],
     ["/api/harness-mesh/ai-config", ["POST"]],
     ["/api/mcp/harness-mesh", ["POST", "GET", "DELETE"]],
     ["/api/mcp/harness-mesh-admin", ["POST", "GET", "DELETE"]],

@@ -5,6 +5,9 @@
   "description": "Harness 组网:DSH 主控插件,经 ACP/CLI 适配器编排 opencode/kimi/zcode/workbuddy 等被控 harness",
   "type": "module",
   "main": "lib/index.js",
+  "scripts": {
+    "test": "node --test --experimental-test-module-mocks \"test/**/*.test.mjs\" \"test/*.test.mjs\""
+  },
   "exports": {
     ".": {
       "default": "./lib/index.js"
