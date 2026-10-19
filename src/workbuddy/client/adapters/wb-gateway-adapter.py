@@ -36,7 +36,7 @@ VERSION = "5.2.1"
 CREATE_NO_WINDOW = 0x08000000  # pythonw 下 subprocess 默认会弹控制台窗口
 
 # 共享文件日志(DSH 侧也能读):生命周期全记录,定位"进程为什么死"
-FILE_LOG = os.environ.get("ADAPTER_LOG", r"D:\AgentHome\DshData\wb-green\v5-adapter.log")
+FILE_LOG = os.environ.get("ADAPTER_LOG", r"D:\DshData\wb-green\v5-adapter.log")
 
 
 def flog(msg):

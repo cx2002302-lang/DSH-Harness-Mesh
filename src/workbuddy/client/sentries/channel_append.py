@@ -7,11 +7,12 @@
   python channel_append.py -f <正文文件.md> [说话人]
 正文从 argv 或 -f 文件读；时间戳取本机当前时间。
 """
+import os
 import sys
 import time
 from pathlib import Path
 
-CHAT = Path(r"D:\AgentHome\DshData\AI协调频道\chat.log")
+CHAT = Path(os.environ.get("MESH_CHANNEL_CHAT", r"D:\DshData\AI协调频道\chat.log"))
 
 
 def main():

@@ -17,7 +17,7 @@ import sys
 from datetime import datetime
 
 PYW = os.path.expanduser(r"~\.workbuddy\binaries\python\versions\3.13.12\pythonw.exe")
-GB = r"D:\AgentHome\DshData\wb-green"
+GB = os.environ.get("MESH_GREEN_DIR", r"D:\DshData\wb-green")
 ANN = os.path.join(GB, "ann-agent.exe")
 LOG = os.path.join(GB, "keepalive.log")
 CREATE_NO_WINDOW = 0x08000000
