@@ -18,6 +18,12 @@ const REGISTRY = {
   "acp-plug": { url: new URL("./acp-plug.js", import.meta.url), export: "AcpPlugAdapter" },
 };
 
+/** 判断 set_model 失败是否属于"被控 harness 不支持/拒绝"(可降级用默认模型继续),
+ *  而不是真故障。已知:kimi 全拒(Internal error)、zcode v2(-p 引擎)无此方法。 */
+export function isModelUnsupported(msg) {
+  return /method not found|unknown method|not supported|unsupported|internal error|invalid.{0,20}model|model.{0,20}(not (found|available|supported))|no such method/i.test(String(msg ?? ""));
+}
+
 /** 加载适配器类;返回 { Cls, modUrl }——modUrl 含 mtime,调用方据此判断是否重建实例。 */
 export async function loadAdapterClass(type) {
   const entry = REGISTRY[type];

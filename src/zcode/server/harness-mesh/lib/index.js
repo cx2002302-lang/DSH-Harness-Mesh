@@ -19,12 +19,22 @@ const name = "harness-mesh";
 const inject = ["tools", "connection", "agentDefaultModel", "llm"];
 
 const HarnessEntry = z.object({
-  /** 适配器类型:本机 ACP / 跨机 SSH 隧道 ACP / CLI 一次性兜底 */
-  type: z.union([z.const("acp-stdio"), z.const("acp-ssh"), z.const("cli-oneshot")]),
+  /** 适配器类型:本机 ACP / 跨机 SSH 隧道 ACP / 插头协议(被控机 harnessd)/ CLI 一次性兜底 */
+  type: z.union([z.const("acp-stdio"), z.const("acp-ssh"), z.const("acp-plug"), z.const("cli-oneshot")]),
   command: z.string().required(),
   args: z.array(z.string()).default([]),
   /** acp-ssh 专用:用户@主机 */
   ssh: z.string(),
+  /** acp-plug 专用:被控机 harnessd 地址(host:port) */
+  address: z.string(),
+  /** acp-plug 专用:被控机 plugs.json 里的插头名 */
+  plugId: z.string(),
+  /** acp-plug 专用:harnessd 鉴权 token(对端配了才需要) */
+  token: z.string(),
+  /** acp-plug 专用:零 root 兜底 SOCKS5 拨号(如 127.0.0.1:11080) */
+  socks: z.string(),
+  /** set_model 失败严格抛错(默认 false:不支持就降级) */
+  strictModel: z.boolean().default(false),
   /** 任务默认工作目录(dispatch 可覆盖) */
   cwd: z.string(),
   /** 固定模型(provider/model);空 = 用被控 harness 默认 */
@@ -60,7 +70,7 @@ function apply(ctx, config) {
   });
 
   const names = nodes.list().map((n) => n.name);
-  const line = `[harness-mesh] 已激活,注册 list/dispatch/status/cancel/result 5 工具 + /api/harness-mesh/* 路由;节点 ${names.length} 个${names.length ? `: ${names.join(", ")}` : ""}`;
+  const line = `[harness-mesh] 已激活,注册 list/dispatch/config/status/cancel/result/team/team_result 工具 + /api/harness-mesh/* 路由;节点 ${names.length} 个${names.length ? `: ${names.join(", ")}` : ""}`;
   console.log(line);
   ctx.logger.info(line);
 }

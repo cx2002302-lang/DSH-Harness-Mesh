@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
 import { AGENT_METHODS, CLIENT_METHODS, PROTOCOL_VERSION, client, ndJsonStream } from "@agentclientprotocol/sdk";
+import { isModelUnsupported } from "./index.js";
 
 export class AcpStdioAdapter {
   /** @param node 规范化后的节点配置 { name, type, command, args, cwd, env }
@@ -129,16 +130,30 @@ export class AcpStdioAdapter {
   async newSession(cwd, model) {
     await this.ensureRunning();
     const res = await this.connection.agent.request(AGENT_METHODS.session_new, { cwd, mcpServers: [] });
-    // 节点固定了模型(默认模型端点故障时可切到可用模型):session/set_model {sessionId, modelId}
+    // 节点固定了模型(默认模型端点故障时可切到可用模型)或任务级覆盖:session/set_model {sessionId, modelId}
     const effModel = model ?? this.node.model;
     if (effModel) {
-      try {
-        await this.connection.agent.request("session/set_model", { sessionId: res.sessionId, modelId: this.node.model });
-      } catch (error) {
-        throw new Error(`harness-mesh: 节点 ${this.node.name} 设置模型 ${effModel} 失败: ${String(error?.message ?? error)}`);
-      }
+      await this.#setModel(res.sessionId, effModel);
     }
     return res.sessionId;
+  }
+
+  /** 设置会话模型。被控 harness 不支持/拒绝时(如 kimi 全拒、zcode v2 无此方法)默认降级:
+   *  记警告后用被控默认模型继续,不让整个任务死在建会话;strictModel:true 时抛错。
+   *  其余未知错误仍抛错——真故障不吞。 */
+  async #setModel(sessionId, modelId) {
+    try {
+      await this.connection.agent.request("session/set_model", { sessionId, modelId });
+      return true;
+    } catch (error) {
+      const msg = String(error?.message ?? error);
+      if (this.node.strictModel) {
+        throw new Error(`harness-mesh: 节点 ${this.node.name} 设置模型 ${modelId} 失败: ${msg}`);
+      }
+      if (!isModelUnsupported(msg)) throw new Error(`harness-mesh: 节点 ${this.node.name} 设置模型 ${modelId} 失败: ${msg}`);
+      console.log(`[harness-mesh] 节点 ${this.node.name} 不支持 session/set_model(${modelId}),按被控默认模型继续: ${msg}`);
+      return false;
+    }
   }
 
   /** 发起一轮 prompt;整个回合(含权限交互)完成后才 resolve。 */

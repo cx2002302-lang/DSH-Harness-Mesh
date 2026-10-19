@@ -28,7 +28,7 @@ export function validateNode(name, entry) {
     throw new Error(`harness-mesh: 节点 "${name}" 缺少 command`);
   }
   if (entry.type === "acp-ssh" && !entry.ssh) {
-    throw new Error(`harness-mesh: 节点 "${name}" 是 acp-ssh 类型,缺少 ssh 目标(如 myxia@192.168.11.206)`);
+    throw new Error(`harness-mesh: 节点 "${name}" 是 acp-ssh 类型,缺少 ssh 目标(如 user@<主机IP>)`);
   }
   return {
     name,
@@ -42,6 +42,10 @@ export function validateNode(name, entry) {
     plugId: entry.plugId ?? null,
     /** acp-plug:零 root 兜底——经本机 ann-agent SOCKS5 拨号(如 127.0.0.1:11080);空=系统路由直连 */
     socks: entry.socks ?? null,
+    /** acp-plug:harnessd 鉴权 token(对端 --token/HARNESSD_TOKEN 配了才需要;空=不鉴权) */
+    token: entry.token ?? null,
+    /** set_model 失败时是否严格抛错(默认 false:被控不支持就降级用默认模型,不废掉整个任务) */
+    strictModel: entry.strictModel === true,
     cwd: entry.cwd ?? null,
     env: { ...(entry.env ?? {}) },
     /** 固定模型(如 opencode/deepseek-v4.1-flash);空 = 用被控 harness 默认 */
