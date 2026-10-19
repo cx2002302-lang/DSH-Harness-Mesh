@@ -1,4 +1,4 @@
-/** workbuddy 专属工具(WinPC · CHINAMI-EKC4J2J · GUI Gateway 形态)。
+/** workbuddy 专属工具(WinPC 被控机 · GUI Gateway 形态)。
  *  编写规范见《harness 专属工具编写规范》(共享 新节点接入包/)。
  *
  *  现状:执行体是 GUI Gateway(动态端口 + Bearer 密码,PEB 自取),经 wb-gateway-adapter

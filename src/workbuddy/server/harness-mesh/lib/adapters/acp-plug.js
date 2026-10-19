@@ -442,6 +442,10 @@ export class AcpPlugAdapter {
         sessionId,
         update: { sessionUpdate: "agent_message_chunk", messageId: "line-1", content: { type: "text", text: JSON.stringify(obj) } },
       });
+      // 与 ACP 模式同规则(2026-10-19 补):mesh 每任务建新会话、从不复用,
+      // 不关流 = 对端槽位泄漏;延迟 1s 放行尾部字节后 task.close + 断流。
+      const sid = sessionId;
+      setTimeout(() => { void this.#closeSession(sid); }, 1000).unref();
       return { stopReason: "end_turn" };
     }
     const response = await session.connection.agent.request(AGENT_METHODS.session_prompt, {

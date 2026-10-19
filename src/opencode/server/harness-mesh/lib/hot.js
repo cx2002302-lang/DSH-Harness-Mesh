@@ -8,9 +8,10 @@ import { validateNode } from "./config.js";
 
 const AI_SYSTEM = [
   "你是 harness 组网节点的配置生成器。根据用户的自然语言描述,产出一个节点配置 JSON。",
-  "字段:name(节点名,1-32 位字母/数字/_/-)、type(acp-stdio 本机直连 / acp-ssh 跨机 SSH 隧道 / cli-oneshot 无 ACP 的 CLI 兜底)、",
-  "command(启动命令,如 opencode)、args(参数数组,如 [\"acp\"])、ssh(acp-ssh 必填,用户@主机)、",
-  "cwd(默认工作目录)、env(环境变量对象)、description(中文描述)。",
+  "字段:name(节点名,1-32 位字母/数字/_/-)、type(acp-plug 插头协议连被控机 harnessd,最常用 / acp-stdio 本机直连 / acp-ssh 跨机 SSH 隧道 / cli-oneshot 无 ACP 的 CLI 兜底)、",
+  "command(启动命令,如 opencode;acp-plug 类型可填空串)、args(参数数组,如 [\"acp\"])、ssh(acp-ssh 必填,用户@主机)、",
+  "address(acp-plug 必填,被控机 harnessd 地址 host:port)、plugId(acp-plug 必填,被控机 plugs.json 里的插头名)、socks(acp-plug 可选,本机 SOCKS5 如 127.0.0.1:11080)、",
+  "cwd(默认工作目录)、model(固定模型,可空)、env(环境变量对象)、description(中文描述)。",
   "只输出 JSON 对象本身,不要 markdown 代码块,不要任何解释。信息不足时合理补默认值。",
 ].join("\n");
 
@@ -23,6 +24,7 @@ const CLIENT_TOOLS = [
   { name: "harness_status", description: "查询任务状态和最近进度(含是否在等你批权限)", inputSchema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"] } },
   { name: "harness_result", description: "任务成功后取结构化汇报(summary/changes/tests)", inputSchema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"] } },
   { name: "harness_cancel", description: "停止一个运行中的任务", inputSchema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"] } },
+  { name: "harness_config", description: "持久设置某个节点的默认模型(写节点表,重启不丢);model 传空串或 default 恢复被控默认", inputSchema: { type: "object", properties: { harness: { type: "string", description: "节点名" }, model: { type: "string", description: "模型标识(provider/model);空串或 default = 恢复被控默认" } }, required: ["harness", "model"] } },
   { name: "harness_help", description: "按需获取某个工具的完整用法(参数/示例/SOP/排错);不带参数则返回全部工具的速览。首次使用某工具前建议先查它", inputSchema: { type: "object", properties: { tool: { type: "string", description: "工具名,如 harness_dispatch;空=全部速览" } } } },
   { name: "harness_tools", description: "查看某个 harness 的专属工具(如 workbuddy 的 wb_info):返回工具名+参数格式;查不存在的 harness 会返回已支持的列表", inputSchema: { type: "object", properties: { harness: { type: "string", description: "harness 名:workbuddy/kimi/zcode/opencode/dsh;空=返回全部已配专属工具的 harness" } } } },
 ];
@@ -35,6 +37,7 @@ const HELP_DOCS = {
   harness_status: "查任务。参数:{task_id(必填,dispatch 返回的原值,不要拼装)}。返回{state,progress[],pending_permission,error}。state: queued→running→succeeded/failed/cancelled/timeout。pending_permission 非空=在等主控侧批权,等几秒再看,不要反复重派。",
   harness_result: "取结构化汇报。参数:{task_id}。仅 state=succeeded 后调(提前调报错)。返回{summary,changes,tests,artifacts,next_hint,duration_ms}。",
   harness_cancel: "停止运行中任务。参数:{task_id}。仅对 running/queued 有效;返回{state:cancelling}。停止后未保存进度丢失。",
+  harness_config: "持久设置节点默认模型。参数:{harness(必填,节点名), model(必填,模型标识如 opencode/deepseek-v4.1-flash;空串或 default = 恢复被控 harness 自己的默认)}。写节点表,重启不丢,对后续 dispatch 立即生效。注意:模型是否真生效取决于被控 harness 是否实现 session/set_model(有的实现对不认识的方法/模型 ID 会报错,任务会失败——设完先派个小任务验证)。",
   harness_help: "本工具。带 tool 参数返回该工具完整用法;不带则返回全部速览。",
   _sop: "标准流程:harness_list 选节点 → harness_dispatch(拿 task_id)→ 每隔几秒 harness_status 到终态 → harness_result 拿汇报 → 汇总给你的用户。纪律:task_id 原样传;prompt 自包含;pending_permission 等待而非重派;一次派一个(要多节点并行找主控侧开团)。",
 };
@@ -115,7 +118,14 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
     };
     return json({
       ok: true,
-      nodes: nodes.list().map((n) => ({ ...n, health: healthOf(n.name), running: mesh.store.countRunning(n.name) })),
+      // target 与 mesh.listNodes 同规则(2026-10-19 补):原始 nodes.list() 没有 target,
+      // 客户端节点列表/@ 菜单直接显示 n.target,缺了会渲染成 "undefined"
+      nodes: nodes.list().map((n) => ({
+        ...n,
+        target: n.type === "acp-ssh" ? n.ssh : n.type === "acp-plug" ? `${n.address}#${n.plugId}` : "local",
+        health: healthOf(n.name),
+        running: mesh.store.countRunning(n.name),
+      })),
     });
   }
 
@@ -372,7 +382,7 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
             const st = mesh.store.get(taskId);
             if (st) {
               const dur = st.started_at ? Math.round((Date.now() - Date.parse(st.started_at)) / 1000) : null;
-              summary = `任务 ${taskId}(节点 ${st.harness},状态 ${st.harness && st.state}${dur ? `,已跑 ${dur}s` : ""},prompt: ${(st.prompt ?? "").slice(0, 60)}…)`;
+              summary = `任务 ${taskId}(节点 ${st.harness},状态 ${st.state}${dur ? `,已跑 ${dur}s` : ""},prompt: ${(st.prompt ?? "").slice(0, 60)}…)`;
             } else summary = `任务 ${taskId}(记录不存在)`;
           } else summary = `节点 ${harness} 新会话`;
         } catch { summary = "(任务信息读取失败)"; }
@@ -441,6 +451,16 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
       }
       if (name === "harness_status") return mesh.status(String(args.task_id ?? ""));
       if (name === "harness_cancel") return mesh.cancel(String(args.task_id ?? ""));
+      if (name === "harness_config") {
+        const h = String(args.harness ?? "");
+        const node = nodes.get(h);
+        if (!node) throw new Error(`harness-mesh: 节点 "${h}" 不存在;可用节点: ${nodes.list().map((n) => n.name).join(", ") || "(无)"}`);
+        const raw = String(args.model ?? "").trim();
+        const next = !raw || raw === "default" ? "" : raw;
+        const changed = (node.model ?? "") !== next;
+        if (changed) nodes.save({ ...node, model: next || null });
+        return { harness: h, model: next, changed, note: "已写节点表,对后续 dispatch 立即生效;建议先派个小任务验证对端支持该模型" };
+      }
       if (name === "harness_result") return mesh.result(String(args.task_id ?? ""));
       throw new Error(`unknown tool: ${name}`);
     };

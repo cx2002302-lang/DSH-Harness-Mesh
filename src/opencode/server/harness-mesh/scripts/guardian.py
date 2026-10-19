@@ -43,7 +43,7 @@ DEFAULTS = {
     "HOSTNAME": os.environ.get("COMPUTERNAME") or __import__("socket").gethostname(),
     "TAGS": "tag:agent",
     "FORWARD": "7080=127.0.0.1:7080",
-    "SERVER": "http://192.168.11.208:8444",
+    "SERVER": "http://<ANN_SERVER>:8444",
 }
 
 

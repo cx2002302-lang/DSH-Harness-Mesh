@@ -6,7 +6,7 @@
 ## 1. 连接
 
 ```
-POST http://192.168.11.208:80/api/mcp/harness-mesh?token=<dsh令牌>
+POST http://<MAIN_GUI_HOST>:80/api/mcp/harness-mesh?token=<dsh令牌>
 ```
 - 协议:MCP over Streamable HTTP,JSON-RPC 2.0,`application/json` 响应(无 SSE 流)
 - 鉴权:URL token 首次种 cookie(会自己处理 cookie 的客户端无感;纯 HTTP 客户端先 `GET /?token=` 种 cookie 再 POST)

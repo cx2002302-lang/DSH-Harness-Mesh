@@ -80,7 +80,7 @@ def lan_addr():
     """经 UDP connect 技巧取本机内网 IPv4(不真发包)。"""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("192.168.11.208", 8443))
+            s.connect(("<ANN_SERVER>", 8443))
             return s.getsockname()[0]
     except OSError:
         return None

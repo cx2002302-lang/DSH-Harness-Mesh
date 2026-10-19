@@ -163,7 +163,7 @@ def self_report(plugs):
     lan = None
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("192.168.11.208", 80))
+        s.connect(("<MAIN_GUI_HOST>", 80))
         lan = s.getsockname()[0]
         s.close()
     except Exception:

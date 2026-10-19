@@ -482,14 +482,23 @@ window.__ModuleLoader__.load({
         React.createElement("div", { style: { fontWeight: 600, marginBottom: 6 } }, isNew ? "新增节点" : `编辑 ${node.name}`),
         React.createElement("input", { style: C.input, placeholder: "节点名(字母/数字/_/-,1-32位)", value: form.name ?? "", disabled: !isNew, onChange: (e) => set("name", e.target.value) }),
         React.createElement("select", { style: C.input, value: form.type ?? "acp-stdio", onChange: (e) => set("type", e.target.value) },
+          React.createElement("option", { value: "acp-plug" }, "acp-plug(插头协议,连被控机 harnessd)"),
           React.createElement("option", { value: "acp-stdio" }, "acp-stdio(本机直连)"),
           React.createElement("option", { value: "acp-ssh" }, "acp-ssh(跨机 SSH 隧道)"),
           React.createElement("option", { value: "cli-oneshot" }, "cli-oneshot(CLI 兜底,暂未实现)"),
         ),
-        React.createElement("input", { style: C.input, placeholder: "command(如 opencode)", value: form.command ?? "", onChange: (e) => set("command", e.target.value) }),
-        React.createElement("input", { style: C.input, placeholder: "args(空格分隔,如 acp)", value: form.args ?? "", onChange: (e) => set("args", e.target.value) }),
+        form.type === "acp-plug"
+          ? React.createElement(React.Fragment, null,
+              React.createElement("input", { style: C.input, placeholder: "address(被控机 harnessd 地址,如 <tailnet-ip>:7080)", value: form.address ?? "", onChange: (e) => set("address", e.target.value) }),
+              React.createElement("input", { style: C.input, placeholder: "plugId(被控机 plugs.json 里的插头名)", value: form.plugId ?? "", onChange: (e) => set("plugId", e.target.value) }),
+              React.createElement("input", { style: C.input, placeholder: "socks(可选,本机 SOCKS5 如 127.0.0.1:11080;空=系统路由直连)", value: form.socks ?? "", onChange: (e) => set("socks", e.target.value) }),
+            )
+          : React.createElement(React.Fragment, null,
+              React.createElement("input", { style: C.input, placeholder: "command(如 opencode)", value: form.command ?? "", onChange: (e) => set("command", e.target.value) }),
+              React.createElement("input", { style: C.input, placeholder: "args(空格分隔,如 acp)", value: form.args ?? "", onChange: (e) => set("args", e.target.value) }),
+            ),
         form.type === "acp-ssh"
-          ? React.createElement("input", { style: C.input, placeholder: "ssh(用户@主机,如 myxia@192.168.11.206)", value: form.ssh ?? "", onChange: (e) => set("ssh", e.target.value) })
+          ? React.createElement("input", { style: C.input, placeholder: "ssh(用户@主机,如 user@192.168.x.x)", value: form.ssh ?? "", onChange: (e) => set("ssh", e.target.value) })
           : null,
         React.createElement("input", { style: C.input, placeholder: "cwd(默认工作目录,可空)", value: form.cwd ?? "", onChange: (e) => set("cwd", e.target.value) }),
         React.createElement("input", { style: C.input, placeholder: "固定模型(可空,如 opencode/deepseek-v4.1-flash;空=用默认)", value: form.model ?? "", onChange: (e) => set("model", e.target.value) }),
@@ -566,7 +575,7 @@ window.__ModuleLoader__.load({
         React.createElement("div", { style: { padding: "6px 8px", border: "1px dashed rgba(128,128,128,.4)", borderRadius: 9 } },
           React.createElement("div", { style: { fontWeight: 600, marginBottom: 4 } }, "AI 辅助配置"),
           React.createElement("textarea", {
-            style: { ...C.input, minHeight: 40 }, placeholder: "用自然语言描述你的 harness,如:「本机的 opencode,命令 opencode acp,用来跑前端任务」或「192.168.11.206 上的 kimi,ssh 用户 myxia」",
+            style: { ...C.input, minHeight: 40 }, placeholder: "用自然语言描述你的 harness,如:「本机的 opencode,命令 opencode acp,用来跑前端任务」或「<SSH_HOST> 上的 kimi,ssh 用户 myxia」",
             value: s.aiText, onChange: (e) => store.set({ aiText: e.target.value }),
           }),
           React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 4 } },
@@ -696,7 +705,7 @@ window.__ModuleLoader__.load({
           // 顺序即排位:两个目标条目之后,机器人第三个(老徐最终确认:只加这一个,
           // ⚡控制台/📋驾驶舱不进坞——它们已在聊天框输入区,不重复)
           add("DeepSeekBot · Bot 团队(打开 DSB 实例)", BOT_SVG, () => {
-            window.open("http://192.168.11.208:31967/?token=88888888", "_blank", "noopener");
+            window.open("http://<DSB_HOST>:31967/?token=<DSB_TOKEN>", "_blank", "noopener");
           });
         }
         for (const el of nav.querySelectorAll("a, button, li, [role='treeitem'], [role='link']")) compactEntry(el);

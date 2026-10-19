@@ -133,7 +133,9 @@ export class AcpStdioAdapter {
     const effModel = model ?? this.node.model;
     if (effModel) {
       try {
-        await this.connection.agent.request("session/set_model", { sessionId: res.sessionId, modelId: this.node.model });
+        // 修正(2026-10-19):此前误传 this.node.model——按任务指定的模型被吞掉,
+        // 节点无默认模型时甚至发 modelId:null。必须传生效值 effModel。
+        await this.connection.agent.request("session/set_model", { sessionId: res.sessionId, modelId: effModel });
       } catch (error) {
         throw new Error(`harness-mesh: 节点 ${this.node.name} 设置模型 ${effModel} 失败: ${String(error?.message ?? error)}`);
       }

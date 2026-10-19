@@ -14,15 +14,29 @@
  *  - POST     /api/harness-mesh/ai-config {description}
  *  - POST     /api/mcp/harness-mesh       MCP(Streamable HTTP)JSON-RPC 入口
  */
+import { stat } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
 export function registerRoutes(ctx, mesh, nodes) {
   const json = (data, status = 200) =>
     new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
   const readJson = async (request) => {
     try { return await request.json(); } catch { return {}; }
   };
-  /** 每请求动态加载 hot.js(时间戳破缓存),逻辑改动保存即生效。 */
-  const hot = () => import(new URL("./hot.js", import.meta.url).href + `?t=${Date.now()}`);
-  const make = (handler) => async (request) => {
+  /** 热加载 hot.js:按文件 mtime 缓存破坏——文件没变复用模块缓存,变了才重导入。
+   *  (2026-10-19 修正:原实现每请求 Date.now() 破缓存,每个请求产生一个新模块实例,
+   *   Node 模块缓存只增不减,常驻进程内存缓慢上涨;hot.js 的模块级常量也被每请求重建。) */
+  const hotUrl = new URL("./hot.js", import.meta.url);
+  const hotPath = fileURLToPath(hotUrl);
+  let hotCache = { mtimeMs: -1, mod: null };
+  const hot = async () => {
+    const { mtimeMs } = await stat(hotPath);
+    if (!hotCache.mod || hotCache.mtimeMs !== mtimeMs) {
+      hotCache = { mtimeMs, mod: await import(`${hotUrl.href}?t=${mtimeMs}`) };
+    }
+    return hotCache.mod;
+  };
+  const make = () => async (request) => {
     try {
       const m = await hot();
       return await m.handle(request, { ctx, mesh, nodes, json, readJson });
@@ -51,7 +65,7 @@ export function registerRoutes(ctx, mesh, nodes) {
   for (const [path, methods] of routes) {
     disposers.push(ctx.connection.fetch.register({
       path, methods, requestBody: "buffered",
-      fetch: make((req, deps) => hot().then((m) => m.handle(req, deps))),
+      fetch: make(),
     }));
   }
   return async () => {

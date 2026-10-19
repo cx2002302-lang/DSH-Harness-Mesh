@@ -19,12 +19,18 @@ const name = "harness-mesh";
 const inject = ["tools", "connection", "agentDefaultModel", "llm"];
 
 const HarnessEntry = z.object({
-  /** 适配器类型:本机 ACP / 跨机 SSH 隧道 ACP / CLI 一次性兜底 */
-  type: z.union([z.const("acp-stdio"), z.const("acp-ssh"), z.const("cli-oneshot")]),
+  /** 适配器类型:本机 ACP / 跨机 SSH 隧道 ACP / 插头协议(被控机 harnessd)/ CLI 一次性兜底 */
+  type: z.union([z.const("acp-stdio"), z.const("acp-ssh"), z.const("acp-plug"), z.const("cli-oneshot")]),
   command: z.string().required(),
   args: z.array(z.string()).default([]),
   /** acp-ssh 专用:用户@主机 */
   ssh: z.string(),
+  /** acp-plug 专用:被控机 harnessd 地址(host:port) */
+  address: z.string(),
+  /** acp-plug 专用:被控机 plugs.json 里的插头名 */
+  plugId: z.string(),
+  /** acp-plug 可选:经本机 SOCKS5(ann-agent)拨号,如 127.0.0.1:11080 */
+  socks: z.string(),
   /** 任务默认工作目录(dispatch 可覆盖) */
   cwd: z.string(),
   /** 固定模型(provider/model);空 = 用被控 harness 默认 */
@@ -48,8 +54,9 @@ function apply(ctx, config) {
   const mesh = new MeshController(ctx, { defaultTimeoutMs: normalized.defaultTimeoutMs }, nodes, store);
   const state = { config: normalized, nodes, store, mesh };
 
+  const tools = createTools(state);
   ctx.effect(() => {
-    const disposers = createTools(state).map((tool) => ctx.tools.register(tool));
+    const disposers = tools.map((tool) => ctx.tools.register(tool));
     // 路由也进 effect:apply 重入(配置热更/双半身装载)时先清理后重注册,避免重复注册报错
     const disposeRoutes = registerRoutes(ctx, mesh, nodes);
     return () => {
@@ -60,7 +67,7 @@ function apply(ctx, config) {
   });
 
   const names = nodes.list().map((n) => n.name);
-  const line = `[harness-mesh] 已激活,注册 list/dispatch/status/cancel/result 5 工具 + /api/harness-mesh/* 路由;节点 ${names.length} 个${names.length ? `: ${names.join(", ")}` : ""}`;
+  const line = `[harness-mesh] 已激活,注册 ${tools.length} 个工具(${tools.map((t) => t.name.replace(/^harness_/, "")).join("/")})+ /api/harness-mesh/* 路由;节点 ${names.length} 个${names.length ? `: ${names.join(", ")}` : ""}`;
   console.log(line);
   ctx.logger.info(line);
 }

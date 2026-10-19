@@ -8,7 +8,7 @@ CHAT=${DSH_DATA:-/srv/dsh-data}/AI协调频道/chat.log
 mkdir -p $OPS
 prev_snap=""
 
-plant() { curl -s -m 5 -c $JAR -L -o /dev/null "$BASE/?token=88888888" 2>/dev/null; }
+plant() { curl -s -m 5 -c $JAR -L -o /dev/null "$BASE/?token=<DSH_TOKEN>" 2>/dev/null; }
 plant
 
 sample() {

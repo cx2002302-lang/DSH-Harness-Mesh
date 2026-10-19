@@ -28,7 +28,7 @@ export function validateNode(name, entry) {
     throw new Error(`harness-mesh: 节点 "${name}" 缺少 command`);
   }
   if (entry.type === "acp-ssh" && !entry.ssh) {
-    throw new Error(`harness-mesh: 节点 "${name}" 是 acp-ssh 类型,缺少 ssh 目标(如 myxia@192.168.11.206)`);
+    throw new Error(`harness-mesh: 节点 "${name}" 是 acp-ssh 类型,缺少 ssh 目标(如 myxia@<SSH_HOST>)`);
   }
   return {
     name,

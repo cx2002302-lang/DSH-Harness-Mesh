@@ -57,6 +57,15 @@ export class MeshController {
     this.live = new Map();
     /** sessionId → task_id(ACP 通知路由) */
     this.sessionIndex = new Map();
+    // 僵尸任务清扫(2026-10-19):主控重启/插件重载后,tasks.jsonl 里残留的
+    // running/queued 任务的运行时早已死亡(live 是内存态),不扫会永远显示"运行中",
+    // 还污染节点健康判断与 harness_tasks 列表。启动即标记失败。
+    for (const t of this.store.list()) {
+      if (t.state === "running" || t.state === "queued") {
+        this.store.update(t.task_id, { state: "failed", ended_at: nowIso(), error: "主控重启/插件重载,任务中断(运行时不可恢复)" });
+        console.log(`[harness-mesh] 僵尸任务清扫: ${t.task_id} @ ${t.harness}(${t.state} → failed)`);
+      }
+    }
   }
 
   /** 节点表(harness_list / GUI 面板用)。 */

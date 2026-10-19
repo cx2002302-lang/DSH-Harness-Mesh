@@ -3,7 +3,7 @@
 set -e
 BASE=http://127.0.0.1:80; JAR=/tmp/hm-verify-jar.txt
 DD=${ANN_DATA:-/var/lib/ann-ctrl}
-rm -f $JAR; curl -s -m 5 -c $JAR -L -o /dev/null "$BASE/?token=88888888"
+rm -f $JAR; curl -s -m 5 -c $JAR -L -o /dev/null "$BASE/?token=<DSH_TOKEN>"
 IP=$(ann-ctrl node list --data-dir=$DD 2>/dev/null | awk '$2 ~ /chinami/ && $5=="yes"{print $3}' | head -1 | cut -d, -f1)
 [ -z "$IP" ] && { echo "chinami 不在线"; exit 1; }
 echo "节点 IP: $IP"
