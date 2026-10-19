@@ -729,6 +729,28 @@ window.__ModuleLoader__.load({
           invalidate();
         } catch { /* 预热失败静默,菜单打开时 candidates 再拉 */ }
       };
+      /** 构造召唤 claim(CommandClaim 契约:token 带参数分隔空格;submit 的 args = token 之后的文本)。
+       *  2026-10-19 修正:onPick 必须回 {claim} 进入命令态,Enter 才走 claim.submit 直连派发;
+       *  此前回 {text} 只插文本芯片——框架的 matchEnter 裁决只对 "/" 开头草稿生效,
+       *  "@节点 任务"会被当普通聊天发给主 LLM(无头实测抓出:@ 召唤此前从未真正生效)。 */
+      const makeClaim = (name, fallbackText = "") => ({
+        name: "harness",
+        token: `@${name} `,
+        hint: `召唤 ${name} 执行任务`,
+        submit: async (args) => {
+          const prompt = (args ?? "").trim() || fallbackText;
+          if (!prompt) return { kind: "error", text: `任务内容为空:@${name} 后面写上任务再回车。` };
+          try {
+            const res = await api.dispatch({ harness: name, prompt, origin: currentSessionId ?? undefined });
+            watchTask(res.task_id);
+            store.set({ open: true, menuOpen: false, tab: "console", notice: `已召唤 ${name}:${res.task_id}` });
+            await refreshTasks();
+            return { kind: "success", text: `已召唤 ${name} 执行任务(${res.task_id}),进度见 Harness 控制台。` };
+          } catch (error) {
+            return { kind: "error", text: `召唤失败:${String(error?.message ?? error)}` };
+          }
+        },
+      });
       return {
         trigger: "@",
         name: "harness",
@@ -751,7 +773,8 @@ window.__ModuleLoader__.load({
             .map((n) => ({ name: n.name, label: n.name, description: n.description || `${n.type} → ${n.target}` }));
         },
         onPick({ candidate }) {
-          return { text: `@${candidate.name} ` };
+          // claim 结局:进入命令态(token + hint),Enter 时 claim.submit 直连派发
+          return { claim: makeClaim(candidate.name) };
         },
         async matchEnter(session, line) {
           if (session?.sessionId) currentSessionId = session.sessionId;
@@ -764,25 +787,7 @@ window.__ModuleLoader__.load({
           if (warmNodes.length === 0) await warm();
           const node = warmNodes.find((n) => n.name === name);
           if (!node) return undefined;
-          return {
-            claim: {
-              name: "harness",
-              token: `@${name}`,
-              hint: `召唤 ${name} 执行任务`,
-              submit: async (args) => {
-                const prompt = (args ?? "").trim() || taskText;
-                try {
-                  const res = await api.dispatch({ harness: name, prompt, origin: currentSessionId ?? undefined });
-                  watchTask(res.task_id);
-                  store.set({ open: true, menuOpen: false, tab: "console", notice: `已召唤 ${name}:${res.task_id}` });
-                  await refreshTasks();
-                  return { kind: "success", text: `已召唤 ${name} 执行任务(${res.task_id}),进度见左下角 Harness 控制台。` };
-                } catch (error) {
-                  return { kind: "error", text: `召唤失败:${String(error?.message ?? error)}` };
-                }
-              },
-            },
-          };
+          return { claim: makeClaim(name, taskText) };
         },
       };
     }
