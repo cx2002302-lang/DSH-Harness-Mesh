@@ -1,0 +1,5 @@
+# harness-mesh 插件的补丁层:insert 插件条目。
+# 配置(harnesses 节点清单等)在 profile 的 cordis.patch.yml 里按 id: harness-mesh 覆盖,按请求热生效。
+- insert:
+    - id: harness-mesh
+      name: '@agents/harness-mesh'

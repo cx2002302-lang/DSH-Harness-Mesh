@@ -1,0 +1,108 @@
+[
+  {
+    "plugId": "workbuddy-exec",
+    "harness": "workbuddy",
+    "capabilities": [
+      "exec"
+    ],
+    "kind": "acp",
+    "command": "C:\\Users\\Administrator\\.workbuddy\\binaries\\python\\versions\\3.13.12\\pythonw.exe",
+    "args": [
+      "C:\\wb-mesh\\wb-gateway-adapter.py"
+    ],
+    "aliases": [
+      "CHINAMI-EKC4J2J-workbuddy"
+    ],
+    "enabled": true,
+    "model": null,
+    "env": {
+      "ADAPTER_MAX_TURN_WAIT": "1800",
+      "PYTHONIOENCODING": "utf-8"
+    }
+  },
+  {
+    "plugId": "workbuddy-ui",
+    "harness": "workbuddy",
+    "capabilities": [
+      "ui"
+    ],
+    "kind": "line",
+    "command": "C:\\Users\\Administrator\\.workbuddy\\binaries\\node\\versions\\22.22.2-6\\node.exe",
+    "args": [
+      "C:\\wb-mesh\\wb-ui.js"
+    ],
+    "aliases": [
+      "wb-ui"
+    ],
+    "enabled": true,
+    "model": null,
+    "env": {
+      "WB_CDP_PORT": "9222"
+    }
+  },
+  {
+    "plugId": "zcode-exec",
+    "harness": "zcode",
+    "capabilities": [
+      "exec"
+    ],
+    "kind": "acp",
+    "command": "C:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+    "args": [
+      "D:\\AgentHome\\DshData\\wb-green\\zcode-adapter.py"
+    ],
+    "aliases": [
+      "CHINAMI-EKC4J2J-zcode"
+    ],
+    "enabled": true,
+    "model": null,
+    "env": {
+      "NODE_EXE": "C:\\Program Files\\nodejs\\node.exe",
+      "ZCODE_CJS": "C:\\Users\\Administrator\\AppData\\Local\\Programs\\ZCode\\resources\\glm\\zcode.cjs",
+      "ADAPTER_LOG": "1",
+      "ADAPTER_MAX_TURN_WAIT": "1800",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "note": "2026-10-17 晚 v2(-p 引擎)全绿:app-server 注册表 provider 在 CLI 侧无密钥,下行改走 zcode -p(login 刷新的账号凭据,实测 PONG 通过)。老徐 20:13 zcode login 完成。"
+  },
+  {
+    "plugId": "kimicode-exec",
+    "harness": "kimicode",
+    "capabilities": [
+      "exec"
+    ],
+    "kind": "acp",
+    "command": "C:\\Users\\Administrator\\.kimi-code\\bin\\kimi.exe",
+    "args": [
+      "acp"
+    ],
+    "no_auto_port": true,
+    "aliases": [
+      "CHINAMI-kimicode",
+      "CHINAMI-EKC4J2J-kimicode"
+    ],
+    "enabled": true,
+    "model": null,
+    "note": "2026-10-17 kimicode 侧接好:原生 kimi.exe acp(ACP over stdio, protocolVersion 1, v2.2.0),免适配器;initialize/session/new 冒烟通过;headless 凭据有效(kimi -p PONG 实测)"
+  },
+  {
+    "plugId": "opencode-exec",
+    "harness": "opencode",
+    "capabilities": [
+      "exec"
+    ],
+    "kind": "acp",
+    "command": "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
+    "args": [
+      "acp"
+    ],
+    "no_auto_port": true,
+    "aliases": [
+      "CHINAMI-opencode",
+      "CHINAMI-EKC4J2J-opencode"
+    ],
+    "enabled": true,
+    "model": null,
+    "note": "2026-10-18 opencode 侧接好:原生 opencode acp(ACP over stdio, v1.19.3, protocolVersion 1),免适配器;no_auto_port:true(保持纯 stdio 直起:args 白名单只认 [acp];harnessd 默认会追加 --port,保守不掺);headless 凭据有效(PONG 实测);会话默认模型由 C:\\wb-mesh\\opencode.json 钉住 opencode/deepseek-v4.1-flash-free(全局默认 xfyun/astron key 已失效:401 apikey not found)"
+  }
+]

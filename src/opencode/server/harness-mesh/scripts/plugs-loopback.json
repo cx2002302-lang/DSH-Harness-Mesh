@@ -1,0 +1,44 @@
+[
+  {
+    "plugId": "opencode-local",
+    "kind": "acp",
+    "command": "opcode_placeholder",
+    "args": [],
+    "cwd": null,
+    "model": null
+  },
+  {
+    "plugId": "fake-acp",
+    "kind": "acp",
+    "command": "python3",
+    "args": [
+      "/root/data/myagents/DSH_PiDurable/harness-mesh/scripts/fake-acp-agent.py"
+    ],
+    "cwd": "/tmp",
+    "model": null
+  },
+  {
+    "plugId": "wb-adapter",
+    "kind": "acp",
+    "command": "python3",
+    "args": [
+      "/tmp/adapter-test/wb-gateway-adapter.py"
+    ],
+    "cwd": "/tmp",
+    "model": null,
+    "env": {
+      "GATEWAY_URL": "http://127.0.0.1:9999",
+      "ADAPTER_LOG": "1"
+    }
+  },
+  {
+    "plugId": "fake-slow",
+    "kind": "acp",
+    "command": "python3",
+    "args": [
+      "/root/data/myagents/DSH_PiDurable/harness-mesh/scripts/fake-slow-agent.py"
+    ],
+    "cwd": "/tmp",
+    "model": null
+  }
+]

@@ -103,6 +103,29 @@ footer { text-align:center; color:var(--dim); font-size:12px; padding:30px; bord
 <table>
 <tr><th>![Bot harness delegation](screenshots/05-dsb-harness-call.jpg)</th><th>![DSB Bot mode](screenshots/04-dsb-roster.jpg)</th></tr>
 </table>
+<h2>Source & Build</h2>
+<p><strong>This repo ships source only — no prebuilt binaries.</strong> Clone, build on your machines, go.</p>
+<pre>
+src/workbuddy/    GUI Gateway B adapter + 10 UI-control tools
+src/zcode/        CLI-first thin adapter (-p engine)
+src/kimicode/     native ACP, zero adapter
+src/opencode/     native ACP, zero adapter
+</pre>
+<p>Each package has a <code>DEPLOY.md</code> with a step-by-step <strong>build & deploy</strong> section</p>
+<p>(dependencies, harnessd/guardian startup, ANN green-mode, node registration).</p>
+<p>What you need on the controlled machine:</p>
+<table>
+<tr><th>Package</th><th>Requires</th><th>Notes</th></tr>
+</table>
+<p>|---|---|---|</p>
+<table>
+<tr><th>workbuddy</th><th>Python ≥3.10 + ann-agent (build from `ann-src/`, Go 1.26.3)</th><th>+ UI control tools</th></tr>
+<tr><td>zcode</td><td>Python ≥3.10 + zcode CLI</td><td>thin adapter included</td></tr>
+<tr><td>kimicode</td><td>Python ≥3.10 + kimi CLI (native ACP)</td><td>zero adapter</td></tr>
+<tr><td>opencode</td><td>Python ≥3.10 + opencode CLI (native ACP)</td><td>needs `opencode auth login`</td></tr>
+</table>
+<p>Download as archive: <a href="https://github.com/cx2002302-lang/DSH-Harness-Mesh/releases/tag/v1.0" target="_blank">Releases → v1.0 → source zips</a>.</p>
+<p>Publishing rules: <a href="PUBLISHING-STANDARD.md" target="_blank">PUBLISHING-STANDARD.md</a>.</p>
 <h2>Install</h2>
 <pre>
 git clone https://github.com/BotHarness/DeepSeekBot.git BotHarness
@@ -179,6 +202,28 @@ node scripts/dev-instance.mjs --home /tmp/botharness-demo --port 31967 \
 <table>
 <tr><th>![Bot 调度实证](screenshots/05-dsb-harness-call.jpg)</th><th>![Bot 模式](screenshots/04-dsb-roster.jpg)</th></tr>
 </table>
+<h2>源码与构建</h2>
+<p><strong>本仓库只发源码,不发预编译二进制。</strong> 下载后在自己的机器上构建。</p>
+<pre>
+src/workbuddy/    GUI 网关适配器 + 10 个 UI 操控工具
+src/zcode/        CLI-first 薄适配器(-p 引擎)
+src/kimicode/     原生 ACP,零适配器
+src/opencode/     原生 ACP,零适配器
+</pre>
+<p>每个包的 <code>DEPLOY.md</code> 里有完整的<strong>构建与部署</strong>步骤(依赖、harnessd/guardian 启动、ANN 绿模、节点注册)。</p>
+<p>被控机上需要自备:</p>
+<table>
+<tr><th>包</th><th>需要</th><th>备注</th></tr>
+</table>
+<p>|---|---|---|</p>
+<table>
+<tr><th>workbuddy</th><th>Python ≥3.10 + ann-agent(Go 1.26.3 从 ann-src/ 编)</th><th>+ UI 操控工具</th></tr>
+<tr><td>zcode</td><td>Python ≥3.10 + zcode CLI</td><td>薄适配器已含</td></tr>
+<tr><td>kimicode</td><td>Python ≥3.10 + kimi CLI(原生 ACP)</td><td>零适配器</td></tr>
+<tr><td>opencode</td><td>Python ≥3.10 + opencode CLI(原生 ACP)</td><td>需 `opencode auth login`</td></tr>
+</table>
+<p>打包下载:<a href="https://github.com/cx2002302-lang/DSH-Harness-Mesh/releases/tag/v1.0" target="_blank">Releases → v1.0 → 源码 zip</a>。</p>
+<p>发布规范:<a href="PUBLISHING-STANDARD.md" target="_blank">PUBLISHING-STANDARD.md</a>。</p>
 <h2>安装</h2>
 <pre>
 git clone https://github.com/BotHarness/DeepSeekBot.git BotHarness

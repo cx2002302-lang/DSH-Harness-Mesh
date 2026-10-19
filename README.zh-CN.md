@@ -63,6 +63,31 @@
 |---|---|
 | ![Bot 调度实证](screenshots/05-dsb-harness-call.jpg) | ![Bot 模式](screenshots/04-dsb-roster.jpg) |
 
+## 源码与构建
+
+**本仓库只发源码,不发预编译二进制。** 下载后在自己的机器上构建。
+
+```
+src/workbuddy/    GUI 网关适配器 + 10 个 UI 操控工具
+src/zcode/        CLI-first 薄适配器(-p 引擎)
+src/kimicode/     原生 ACP,零适配器
+src/opencode/     原生 ACP,零适配器
+```
+
+每个包的 `DEPLOY.md` 里有完整的**构建与部署**步骤(依赖、harnessd/guardian 启动、ANN 绿模、节点注册)。
+
+被控机上需要自备:
+
+| 包 | 需要 | 备注 |
+|---|---|---|
+| workbuddy | Python ≥3.10 + ann-agent(Go 1.26.3 从 ann-src/ 编) | + UI 操控工具 |
+| zcode | Python ≥3.10 + zcode CLI | 薄适配器已含 |
+| kimicode | Python ≥3.10 + kimi CLI(原生 ACP) | 零适配器 |
+| opencode | Python ≥3.10 + opencode CLI(原生 ACP) | 需 `opencode auth login` |
+
+打包下载:[Releases → v1.0 → 源码 zip](https://github.com/cx2002302-lang/DSH-Harness-Mesh/releases/tag/v1.0)。
+发布规范:[PUBLISHING-STANDARD.md](PUBLISHING-STANDARD.md)。
+
 ## 安装
 
 ```bash

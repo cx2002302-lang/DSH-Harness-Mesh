@@ -63,6 +63,32 @@ The plug protocol (length-framed JSON-RPC + raw byte pipes) drives four complete
 |---|---|
 | ![Bot harness delegation](screenshots/05-dsb-harness-call.jpg) | ![DSB Bot mode](screenshots/04-dsb-roster.jpg) |
 
+## Source & Build
+
+**This repo ships source only — no prebuilt binaries.** Clone, build on your machines, go.
+
+```
+src/workbuddy/    GUI Gateway B adapter + 10 UI-control tools
+src/zcode/        CLI-first thin adapter (-p engine)
+src/kimicode/     native ACP, zero adapter
+src/opencode/     native ACP, zero adapter
+```
+
+Each package has a `DEPLOY.md` with a step-by-step **build & deploy** section
+(dependencies, harnessd/guardian startup, ANN green-mode, node registration).
+
+What you need on the controlled machine:
+
+| Package | Requires | Notes |
+|---|---|---|
+| workbuddy | Python ≥3.10 + ann-agent (build from `ann-src/`, Go 1.26.3) | + UI control tools |
+| zcode | Python ≥3.10 + zcode CLI | thin adapter included |
+| kimicode | Python ≥3.10 + kimi CLI (native ACP) | zero adapter |
+| opencode | Python ≥3.10 + opencode CLI (native ACP) | needs `opencode auth login` |
+
+Download as archive: [Releases → v1.0 → source zips](https://github.com/cx2002302-lang/DSH-Harness-Mesh/releases/tag/v1.0).
+Publishing rules: [PUBLISHING-STANDARD.md](PUBLISHING-STANDARD.md).
+
 ## Install
 
 ```bash
