@@ -68,13 +68,9 @@ pnpm install && pnpm build
 
 ## Screenshots
 
-| @ dispatch menu (type @, pick a node, go) | Harness console (dispatch + task list) |
-|---|---|
-| ![At dispatch menu](screenshots/02-at-menu.jpg) | ![Harness console](screenshots/01-harness-console.jpg) |
+One board, six live shots — @ summon menu, dispatch console, human-in-the-loop permission gate, node roster, node form (acp-plug), and DeepSeekBot driving the mesh:
 
-| Bot dispatching to the mesh (request + 8-node report) | Bot mode (roster + live chat) |
-|---|---|
-| ![Bot harness delegation](screenshots/05-dsb-harness-call.jpg) | ![DSB Bot mode](screenshots/04-dsb-roster.jpg) |
+![Showcase](screenshots/showcase.jpg)
 
 ## Source & Build
 
