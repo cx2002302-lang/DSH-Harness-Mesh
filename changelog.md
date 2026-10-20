@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.9 — 2026-10-21
+
+- qoder(Qoder CN CLI qoderclicn)入网:qoder-adapter.py ACP 插头 + qoder-exec 注册,验收五项全绿(冒烟/节点登记/探测 2 模型/e2e 真回复/cancel)
+- 实踩备忘:新节点须带 socks userspace 兜底;harnessd 未知 plugId 静默回退默认插头是隐患(待 wb-green 改硬报错)
+
 ## v1.2.8 — 2026-10-20
 
 - qoder 开场提示词 v2:对齐 kimicode 频道模板,补接入包文档引用与 MCP 对接网址
