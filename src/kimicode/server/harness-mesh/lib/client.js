@@ -727,10 +727,10 @@ window.__ModuleLoader__.load({
             const go = () => { if (done) return; done = true; try { f.remove(); } catch { /* 已摘 */ } openClean(clean); };
             const f = document.createElement("iframe");
             f.style.display = "none";
+            f.src = login;               // 先指 src 再入 DOM:否则空 iframe 的 about:blank onload 抢跑,把它提前摘掉(无头实测实踩)
             f.onload = go;
             setTimeout(go, 5000);  // 兜底:被 X-Frame-Options 拒也照开(cookie 通常已种上)
             document.body.appendChild(f);
-            f.src = login;
           });
         }
         for (const el of nav.querySelectorAll("a, button, li, [role='treeitem'], [role='link']")) compactEntry(el);

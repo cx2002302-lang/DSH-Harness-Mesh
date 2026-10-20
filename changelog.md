@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.2 — 2026-10-19(热修)
+
+- 修 v1.1.1 的 iframe 预登录竞态:空 iframe 的 about:blank onload 抢跑导致预登录被提前摘除(无头浏览器实测抓到,先指 src 再入 DOM)
+
 ## v1.1.1 — 2026-10-19(热修)
 
 - DSB 按钮免 token 直开:新端点 `GET /api/harness-mesh/dsb-open` 出一次性登录地址,客户端隐藏 iframe 预登录后开干净 URL,地址栏全程无 token(老实例经 `nodes?dsb=1` shim 热加载生效)
