@@ -704,13 +704,33 @@ window.__ModuleLoader__.load({
           };
           // 顺序即排位:两个目标条目之后,机器人第三个(老徐最终确认:只加这一个,
           // ⚡控制台/📋驾驶舱不进坞——它们已在聊天框输入区,不重复)
-          add("DeepSeekBot · Bot 团队(打开 DSB 实例)", BOT_SVG, () => {
-            // DSB 地址合成(2026-10-19 去硬编码:原写死内网 IP+token,发布即泄密):
-            // 默认同主机 :31967 + 透传当前页 token;部署不同时 localStorage["hm.dsbUrl"] 覆盖。
-            const override = localStorage.getItem("hm.dsbUrl");
-            const token = new URLSearchParams(location.search).get("token");
-            const url = override ?? `${location.protocol}//${location.hostname}:31967/${token ? `?token=${token}` : ""}`;
-            window.open(url, "_blank", "noopener");
+          add("DeepSeekBot · Bot 团队(打开 DSB 实例)", BOT_SVG, async () => {
+            // 打开 DSB,地址栏全程无 token(2026-10-19):
+            // ①服务端出一次性登录 URL(token 只走已鉴权的 API 通道)
+            // ②隐藏 iframe 加载它 → DSB 种好自己的 auth cookie
+            // ③新标签打开干净地址。拿不到登录 URL 就直接开干净地址(DSB cookie 有效期内直通)。
+            const cleanGuess = `${location.protocol}//${location.hostname}:31967/`;
+            const openClean = (u) => window.open(u, "_blank", "noopener");
+            let login = null, clean = cleanGuess;
+            try {
+              const d = await call("/api/harness-mesh/dsb-open");
+              if (d?.ok) { login = d.url; clean = d.cleanUrl ?? cleanGuess; }
+            } catch { /* 旧服务端无此端点 */ }
+            if (!login) {
+              try {
+                const d = await call("/api/harness-mesh/nodes?dsb=1");  // 老实例 shim(路由表未含新端点)
+                if (d?.ok && d?.url) { login = d.url; clean = d.cleanUrl ?? cleanGuess; }
+              } catch { /* 没 token 可给 */ }
+            }
+            if (!login) { openClean(clean); return; }
+            let done = false;
+            const go = () => { if (done) return; done = true; try { f.remove(); } catch { /* 已摘 */ } openClean(clean); };
+            const f = document.createElement("iframe");
+            f.style.display = "none";
+            f.onload = go;
+            setTimeout(go, 5000);  // 兜底:被 X-Frame-Options 拒也照开(cookie 通常已种上)
+            document.body.appendChild(f);
+            f.src = login;
           });
         }
         for (const el of nav.querySelectorAll("a, button, li, [role='treeitem'], [role='link']")) compactEntry(el);

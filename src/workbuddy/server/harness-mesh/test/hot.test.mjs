@@ -479,6 +479,56 @@ test("MCP harness_session:两段式确认 → 执行 stop;token 一次性;过期
   assert.ok(newIds[0].includes("原任务")); // 按原 prompt 重新派发
 });
 
+// ================= DSB 登录地址(2026-10-19:token 不出地址栏) =================
+test("GET /dsb-open:有 token → {url(带token), cleanUrl(干净)};Host 头决定主机名", async () => {
+  const saved = { t: process.env.DSH_DSB_TOKEN, w: process.env.DSH_WEB_TOKEN };
+  process.env.DSH_DSB_TOKEN = "tok-dsb-1";
+  delete process.env.DSH_WEB_TOKEN;
+  try {
+    const r = req("/api/harness-mesh/dsb-open");
+    r.headers = { get: (k) => (k === "host" ? "mesh.example:80" : null) };
+    const res = await handle(r, deps());
+    assert.equal(res.data.ok, true);
+    assert.equal(res.data.url, "http://mesh.example:31967/?token=tok-dsb-1");
+    assert.equal(res.data.cleanUrl, "http://mesh.example:31967/");
+  } finally {
+    if (saved.t === undefined) delete process.env.DSH_DSB_TOKEN; else process.env.DSH_DSB_TOKEN = saved.t;
+    if (saved.w === undefined) delete process.env.DSH_WEB_TOKEN; else process.env.DSH_WEB_TOKEN = saved.w;
+  }
+});
+
+test("GET /dsb-open:DSH_DSB_TOKEN 缺省回退 DSH_WEB_TOKEN;两个都没 → ok:false 但仍给 cleanUrl", async () => {
+  const saved = { t: process.env.DSH_DSB_TOKEN, w: process.env.DSH_WEB_TOKEN };
+  delete process.env.DSH_DSB_TOKEN;
+  process.env.DSH_WEB_TOKEN = "tok-web-2";
+  try {
+    let res = await get("/api/harness-mesh/dsb-open");
+    assert.equal(res.data.ok, true);
+    assert.match(res.data.url, /\?token=tok-web-2$/);
+    delete process.env.DSH_WEB_TOKEN;
+    res = await get("/api/harness-mesh/dsb-open");
+    assert.equal(res.data.ok, false);
+    assert.ok(res.data.cleanUrl.endsWith(":31967/"), "没 token 也给干净地址兜底");
+  } finally {
+    if (saved.t === undefined) delete process.env.DSH_DSB_TOKEN; else process.env.DSH_DSB_TOKEN = saved.t;
+    if (saved.w === undefined) delete process.env.DSH_WEB_TOKEN; else process.env.DSH_WEB_TOKEN = saved.w;
+  }
+});
+
+test("GET /nodes?dsb=1:老路由表 shim,产出与 /dsb-open 同形;?dsb=2 不误触发", async () => {
+  const saved = process.env.DSH_DSB_TOKEN;
+  process.env.DSH_DSB_TOKEN = "tok-shim";
+  try {
+    const res = await get("/api/harness-mesh/nodes", "?dsb=1");
+    assert.equal(res.data.ok, true);
+    assert.match(res.data.url, /\?token=tok-shim$/);
+    const normal = await get("/api/harness-mesh/nodes", "?dsb=2", makeMesh(), makeNodes());
+    assert.ok(Array.isArray(normal.data.nodes), "dsb≠1 走正常节点清单");
+  } finally {
+    if (saved === undefined) delete process.env.DSH_DSB_TOKEN; else process.env.DSH_DSB_TOKEN = saved;
+  }
+});
+
 // ================= 兜底 =================
 test("未知路径 → 404", async () => {
   const res = await get("/api/nope");

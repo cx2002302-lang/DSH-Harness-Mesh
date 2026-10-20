@@ -89,10 +89,34 @@ function teamRoles(teamId) {
 
 /** 主入口:按 pathname 分发。 */
 export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
-  const path = new URL(request.url).pathname;
+  const url0 = new URL(request.url);
+  const path = url0.pathname;
+
+  // ---- DSB 登录地址(2026-10-19)----
+  // 背景:DSB 是独立 DSH 实例,auth cookie 按实例签名,主 GUI 的 cookie 它不认;
+  // 页面侧又拿不到 token(303 后 URL 已抹、cookie HttpOnly)。由服务端出一次性登录 URL:
+  // 客户端隐藏 iframe 先种 DSB cookie,再新开干净地址——地址栏全程无 token。
+  // token 来源:DSH_DSB_TOKEN → DSH_WEB_TOKEN(本部署两者同值);都没有 → ok:false。
+  // 主机名取请求 Host(兼容 tailnet/域名访问),端口 DSH_DSB_PORT(默认 31967)。
+  // 注意:正式路由 /api/harness-mesh/dsb-open 需在 http.js 注册表里才生效(重启后);
+  // 在跑的老实例路由表没它,客户端回退走 /api/harness-mesh/nodes?dsb=1(本 shim,热加载即生效)。
+  const dsbPayload = () => {
+    const token = process.env.DSH_DSB_TOKEN ?? process.env.DSH_WEB_TOKEN ?? "";
+    const host = (request.headers.get("host") ?? "127.0.0.1").split(":")[0];
+    const port = process.env.DSH_DSB_PORT ?? "31967";
+    const cleanUrl = `http://${host}:${port}/`;
+    if (!token) return { ok: false, error: "服务端无 DSH_DSB_TOKEN/DSH_WEB_TOKEN,给不了登录地址", cleanUrl };
+    return { ok: true, url: `${cleanUrl}?token=${token}`, cleanUrl };
+  };
+  if (path === "/api/harness-mesh/dsb-open" && request.method === "GET") {
+    return json(dsbPayload());
+  }
 
   // ---- 节点 CRUD ----
   if (path === "/api/harness-mesh/nodes") {
+    if (request.method === "GET" && url0.searchParams.get("dsb") === "1") {
+      return json(dsbPayload());
+    }
     if (request.method === "POST") {
       const body = await readJson(request);
       try {

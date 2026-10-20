@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.1 — 2026-10-19(热修)
+
+- DSB 按钮免 token 直开:新端点 `GET /api/harness-mesh/dsb-open` 出一次性登录地址,客户端隐藏 iframe 预登录后开干净 URL,地址栏全程无 token(老实例经 `nodes?dsb=1` shim 热加载生效)
+
 ## v1.1 — 2026-10-19
 
 - 模型桥:网格节点钉的模型自动注册为 LLM 供应商(volatile 热同步,零重启)
