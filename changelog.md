@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.6 — 2026-10-20
+
+- 面板新增 qoder-chat 聊天页(dispatch+轮询,错误路径实测)
+- docs/qoder-adapter-prompt.md:Qoder CN CLI(qoderclicn)的 ACP 适配器编写提示词
+
 ## v1.2.5 — 2026-10-20
 
 - 名册行名字左对齐(修复 space-between 把名字挤到行中间)
