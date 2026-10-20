@@ -49,7 +49,10 @@ const before = await page.evaluate(async (name) => {
 }, NODE);
 console.log("勾选前白名单:", JSON.stringify(before));
 const boxes = await page.$$('label input[type="checkbox"]');
-await boxes[2].click();   // 真实鼠标
+let target = null;
+for (const b of boxes) { if (!(await (await b.getProperty("checked")).jsonValue())) { target = b; break; } }
+if (!target) throw new Error("没有未勾选的框可点");
+await target.click();   // 真实鼠标,点第一个未勾的(白名单残留会导致前几个已勾,实踩)
 await page.waitForFunction(async (name, cnt) => {
   const d = await (await fetch("/api/harness-mesh/nodes")).json();
   return (d.nodes.find((x) => x.name === name)?.models ?? []).length === cnt;
