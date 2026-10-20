@@ -46,6 +46,8 @@ export function validateNode(name, entry) {
     env: { ...(entry.env ?? {}) },
     /** 固定模型(如 opencode/deepseek-v4.1-flash);空 = 用被控 harness 默认 */
     model: entry.model ?? null,
+    /** 可用模型白名单(2026-10-20,模型探测+勾选):空 = 不限制;非空 = dispatch 模型覆盖必须在名单内 */
+    models: Array.isArray(entry.models) ? entry.models.filter((m) => typeof m === "string" && m.trim()).map((m) => m.trim()).slice(0, 64) : [],
     description: entry.description ?? "",
   };
 }

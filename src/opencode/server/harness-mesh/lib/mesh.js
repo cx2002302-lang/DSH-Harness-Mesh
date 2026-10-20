@@ -112,6 +112,10 @@ export class MeshController {
     if (!node) {
       throw new Error(`harness-mesh: 节点 "${harness}" 不存在;可用节点: ${this.nodes.list().map((n) => n.name).join(", ") || "(无)"}`);
     }
+    // 模型白名单(2026-10-20,节点管理勾选):名单非空时,模型覆盖必须在名单内
+    if (model && node.models?.length && !node.models.includes(model)) {
+      throw new Error(`harness-mesh: 节点 "${harness}" 不允许模型 "${model}";可用: ${node.models.join(", ")}(在节点管理勾选调整)`);
+    }
     const timeout = timeoutMs ?? this.config.defaultTimeoutMs;
     const taskId = `t-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${randomUUID().slice(0, 8)}`;
     const task = this.store.create({
@@ -151,6 +155,20 @@ export class MeshController {
    *  members: [{harness, role?}] 或 [harness名];role 会作为 prompt 前缀注入。
    *  返回 {team_id, tasks:[{harness, role, task_id}]};用 harness_status/result 逐任务跟进,
    *  或调 teamResult(team_id) 拿聚合汇报。 */
+  /** 探测节点 harness 的可用模型(节点管理面板"探测"按钮):开临时会话读 availableModels。
+   * @returns {{models: Array<{modelId: string, name: string}>, currentModelId: string|null}} */
+  async probeModels(name) {
+    const node = this.nodes.get(name);
+    if (!node) {
+      throw new Error(`harness-mesh: 节点 "${name}" 不存在;可用节点: ${this.nodes.list().map((n) => n.name).join(", ") || "(无)"}`);
+    }
+    const adapter = await this.#adapterFor(node);
+    if (typeof adapter.listModels !== "function") {
+      throw new Error(`harness-mesh: 节点 ${name}(${node.type})不支持模型探测`);
+    }
+    return adapter.listModels(node.cwd ?? undefined);
+  }
+
   async dispatchTeam({ task, members, cwd, timeoutMs, deny, approvalAgent, signal }) {
     const list = Array.isArray(members) ? members : [];
     if (!list.length) throw new Error("harness-mesh: 开团需要 members:[{harness, role?}]");

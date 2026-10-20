@@ -383,6 +383,8 @@ export class AcpPlugAdapter {
 
     // 远程进程启动即退出:initialize 会因管道断开而失败,这里给出可读信息
     const res = await connection.agent.request(AGENT_METHODS.session_new, { cwd, mcpServers: [] });
+    this.lastSessionNewRes = res;  // listModels 探测用:availableModels/configOptions 在这个响应里
+    console.log(`[harness-mesh] session/new 响应键: ${Object.keys(res ?? {})} ${res?.configOptions ? `configOptions=${res.configOptions.length}` : ""}${res?.models ? "有models字段" : ""}`);
     console.log(`[harness-mesh] plug 会话建立:session/new OK(stream=${streamId})`);
     const sessionId = res.sessionId;
     this.sessions.set(sessionId, { streamId, dataConn, connection });
@@ -399,6 +401,29 @@ export class AcpPlugAdapter {
       }
     }
     return sessionId;
+  }
+
+  /** 探测该 harness 的可用模型:开临时会话读 session/new 的 models 字段,读完 cancel 释放。 */
+  async listModels(cwd) {
+    const sessionId = await this.newSession(cwd ?? this.node.cwd ?? "/tmp", null);
+    try { await this.cancel(sessionId); } catch { /* 尽力释放 */ }
+    const res = this.lastSessionNewRes ?? {};
+    // 两种形状都认:①标准 ACP res.models.availableModels;②opencode 方言 configOptions[category=model] 的 select(裸抓实测)
+    const acp = res?.models?.availableModels ?? [];
+    if (acp.length) {
+      return {
+        models: acp.map((m) => ({ modelId: String(m.modelId ?? ""), name: String(m.name ?? m.modelId ?? "") })).filter((m) => m.modelId),
+        currentModelId: res?.models?.currentModelId ?? null,
+      };
+    }
+    const opt = (res?.configOptions ?? []).find((o) => o?.category === "model" && Array.isArray(o.options));
+    if (opt) {
+      return {
+        models: opt.options.map((o) => ({ modelId: String(o.value ?? ""), name: String(o.name ?? o.value ?? "") })).filter((m) => m.modelId),
+        currentModelId: opt.currentValue ?? null,
+      };
+    }
+    return { models: [], currentModelId: null };
   }
 
   /** 把远程进程死因织进错误信息(harnessd task.exit 回传的 code+stderr)。 */

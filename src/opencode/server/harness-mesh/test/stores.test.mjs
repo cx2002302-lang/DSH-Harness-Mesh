@@ -59,8 +59,20 @@ describe("lib/config.js validateNode", () => {
       cwd: null,
       env: {},
       model: null,
+      models: [],
       description: "",
     });
+  });
+
+  it("models 白名单:数组透传/去空白/上限 64;非数组或缺省 → []", () => {
+    const a = validateNode("m1", { type: "acp-stdio", command: "opencode", models: ["glm-5.3", " deepseek-v4.1 ", "", 42, null] });
+    assert.deepEqual(a.models, ["glm-5.3", "deepseek-v4.1"]);
+    const b = validateNode("m2", { type: "acp-stdio", command: "opencode" });
+    assert.deepEqual(b.models, []);
+    const c = validateNode("m3", { type: "acp-stdio", command: "opencode", models: "not-array" });
+    assert.deepEqual(c.models, []);
+    const big = validateNode("m4", { type: "acp-stdio", command: "opencode", models: Array.from({ length: 100 }, (_, i) => `m${i}`) });
+    assert.equal(big.models.length, 64);
   });
 
   it("acp-plug 正常路径:command 默认空串,address/plugId/socks/cwd/model/description 透传", () => {

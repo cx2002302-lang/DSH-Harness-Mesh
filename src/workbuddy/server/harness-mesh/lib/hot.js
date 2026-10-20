@@ -112,10 +112,49 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
     return json(dsbPayload());
   }
 
+  // ---- 模型探测(2026-10-20,节点管理"探测可用模型"按钮)----
+  // 正式路由 POST /api/harness-mesh/probe-models {name}(重启后生效);
+  // 在跑老实例走 GET /api/harness-mesh/nodes?probeModels=<name> shim(热加载即生效)。
+  // 实现注意(2026-10-20):不走 mesh 方法——mesh 实例是启动时的,不热加载;
+  // 用 nodes 存取 + 适配器类热加载(与 mesh.js 同一套 loadAdapterClass),
+  // 起一次性适配器实例探测完即 dispose,改代码/加机型全部零重启。
+  const probeModels = async (name) => {
+    const node = nodes.get(name);
+    if (!node) return json({ ok: false, error: `节点 "${name}" 不存在` }, 404);
+    try {
+      const { loadAdapterClass } = await import("./adapters/index.js");
+      const { Cls } = await loadAdapterClass(node.type);
+      if (typeof Cls.prototype.listModels !== "function") {
+        return json({ ok: false, error: `节点 ${name}(${node.type})不支持模型探测` }, 400);
+      }
+      // 探测不派活,权限钩子走拒绝兜底(不会真触发——只 session/new + cancel)
+      const adapter = new Cls(node, {
+        onSessionUpdate: () => {},
+        resolvePermission: async () => ({ action: "reject", reason: "probe" }),
+        onProcessExit: () => {},
+      });
+      try {
+        const r = await adapter.listModels(node.cwd ?? undefined);
+        return json({ ok: true, name, models: r.models, currentModelId: r.currentModelId });
+      } finally {
+        await adapter.dispose().catch(() => {});
+      }
+    } catch (error) {
+      return json({ ok: false, error: String(error?.message ?? error) }, 400);
+    }
+  };
+  if (path === "/api/harness-mesh/probe-models" && request.method === "POST") {
+    const body = await readJson(request);
+    return probeModels(String(body.name ?? ""));
+  }
+
   // ---- 节点 CRUD ----
   if (path === "/api/harness-mesh/nodes") {
     if (request.method === "GET" && url0.searchParams.get("dsb") === "1") {
       return json(dsbPayload());
+    }
+    if (request.method === "GET" && url0.searchParams.get("probeModels")) {
+      return probeModels(url0.searchParams.get("probeModels"));
     }
     if (request.method === "POST") {
       const body = await readJson(request);

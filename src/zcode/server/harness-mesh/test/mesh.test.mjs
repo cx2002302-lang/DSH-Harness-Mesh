@@ -161,6 +161,33 @@ test("dispatch:未知节点报错并列出可用节点;空表提示(无)", async
   await assert.rejects(() => mesh2.dispatch({ harness: "x", prompt: "x" }), /\(无\)/);
 });
 
+test("dispatch 模型白名单:名单外模型拒绝(报错含可用清单);名单内/无名单放行", async () => {
+  resetCtrl();
+  const { mesh, nodesStore } = makeEnv();
+  nodesStore.load({ n1: stdioNode("n1", { models: ["glm-5.3", "deepseek-v4.1"] }) });
+  await assert.rejects(() => mesh.dispatch({ harness: "n1", prompt: "x", model: "gpt-9" }), (e) => {
+    assert.ok(e.message.includes("gpt-9") && e.message.includes("glm-5.3"), "报错应点名被拒模型和可用名单");
+    return true;
+  });
+  const ok = await mesh.dispatch({ harness: "n1", prompt: "x", model: "glm-5.3" });
+  assert.equal(ok.state, "queued");
+  // 白名单为空 → 不限制
+  resetCtrl();
+  const env2 = makeEnv();
+  env2.nodesStore.load({ n2: stdioNode("n2", { models: [] }) });
+  const ok2 = await env2.mesh.dispatch({ harness: "n2", prompt: "x", model: "anything" });
+  assert.equal(ok2.state, "queued");
+});
+
+test("probeModels:委托 adapter.listModels;未知节点/不支持类型报错", async () => {
+  resetCtrl();
+  const { mesh, nodesStore } = makeEnv();
+  nodesStore.load({ n1: stdioNode("n1") });
+  // 测试替身(fake adapter 类)没有 listModels → 明确报错
+  await assert.rejects(() => mesh.probeModels("n1"), /不支持模型探测/);
+  await assert.rejects(() => mesh.probeModels("ghost"), /不存在/);
+});
+
 test("dispatch 正常路径:queued→running→succeeded + 结构化 result", async () => {
   resetCtrl();
   const { mesh, store, nodesStore } = makeEnv();

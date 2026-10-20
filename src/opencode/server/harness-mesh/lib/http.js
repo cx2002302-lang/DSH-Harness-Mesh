@@ -11,6 +11,7 @@
  *  - POST     /api/harness-mesh/cancel    {task_id}
  *  - POST     /api/harness-mesh/permission {task_id, allow}
  *  - GET      /api/harness-mesh/dsb-open  DSB 一次性登录地址(token 不出地址栏)
+ *  - POST     /api/harness-mesh/probe-models {name}  探测该 harness 的可用模型
  *  - POST     /api/harness-mesh/ai-config {description}
  *  - POST     /api/mcp/harness-mesh       MCP(Streamable HTTP)JSON-RPC 入口
  */
@@ -57,6 +58,7 @@ export function registerRoutes(ctx, mesh, nodes) {
     ["/api/harness-mesh/cancel", ["POST"]],
     ["/api/harness-mesh/permission", ["POST"]],
     ["/api/harness-mesh/dsb-open", ["GET"]],
+    ["/api/harness-mesh/probe-models", ["POST"]],
     ["/api/harness-mesh/ai-config", ["POST"]],
     ["/api/mcp/harness-mesh", ["POST", "GET", "DELETE"]],
     ["/api/mcp/harness-mesh-admin", ["POST", "GET", "DELETE"]],

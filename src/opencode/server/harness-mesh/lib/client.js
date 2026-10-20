@@ -93,6 +93,11 @@ window.__ModuleLoader__.load({
     const api = {
       loadNodes: () => call("/api/harness-mesh/nodes"),
       saveNode: (node) => call("/api/harness-mesh/nodes", { method: "POST", headers: jsonHeaders, body: JSON.stringify({ node }) }),
+      // 探测节点可用模型:正式端点(重启后)→ 老实例 shim(热加载即有)
+      probeModels: async (name) => {
+        try { return await call("/api/harness-mesh/probe-models", { method: "POST", headers: jsonHeaders, body: JSON.stringify({ name }) }); }
+        catch { return await call(`/api/harness-mesh/nodes?probeModels=${encodeURIComponent(name)}`); }
+      },
       removeNode: (name) => call(`/api/harness-mesh/node?name=${encodeURIComponent(name)}`, { method: "DELETE" }),
       dispatch: (body) => call("/api/harness-mesh/dispatch", { method: "POST", headers: jsonHeaders, body: JSON.stringify(body) }),
       team: (body) => call("/api/harness-mesh/team", { method: "POST", headers: jsonHeaders, body: JSON.stringify(body) }),
@@ -414,10 +419,23 @@ window.__ModuleLoader__.load({
             style: { ...C.input, width: 90 }, placeholder: "超时ms", value: s.form.timeout,
             onChange: (e) => set("timeout", e.target.value),
           }),
-          !s.form.team && React.createElement("input", {
-            style: { ...C.input, width: 170 }, placeholder: "模型(可选,如 opencode/xx)", value: s.form.model,
-            onChange: (e) => set("model", e.target.value),
-          }),
+          !s.form.team && (() => {
+            // 节点勾了可用模型白名单 → 下拉选;没勾 → 自由输入(2026-10-20 节点管理改造)
+            const wl = s.nodes.find((n) => n.name === s.form.harness)?.models ?? [];
+            if (!wl.length) {
+              return React.createElement("input", {
+                style: { ...C.input, width: 170 }, placeholder: "模型(可选,如 opencode/xx)", value: s.form.model,
+                onChange: (e) => set("model", e.target.value),
+              });
+            }
+            return React.createElement("select", {
+              style: { ...C.input, width: 170 }, value: s.form.model, title: "该节点在管理面板勾选的可用模型",
+              onChange: (e) => set("model", e.target.value),
+            },
+              React.createElement("option", { value: "" }, "模型(默认)"),
+              wl.map((m) => React.createElement("option", { key: m, value: m }, m)),
+            );
+          })(),
           React.createElement("label", { style: { fontSize: 11, color: "#9fb2cc", display: "flex", alignItems: "center", gap: 3 } },
             React.createElement("input", {
               type: "checkbox", checked: s.form.team,
@@ -467,6 +485,16 @@ window.__ModuleLoader__.load({
     function NodeForm({ node, isNew, onSave, onCancel }) {
       const [form, setForm] = React.useState(node);
       const [err, setErr] = React.useState(null);
+      // 可用模型区(2026-10-20):默认折叠;展开可探测该 harness 的模型并勾选白名单
+      const [modelsOpen, setModelsOpen] = React.useState(false);
+      const [probe, setProbe] = React.useState(null);      // {models, currentModelId} | {error}
+      const [probing, setProbing] = React.useState(false);
+      const doProbe = async () => {
+        setProbing(true); setProbe(null);
+        try { setProbe(await api.probeModels(form.name)); }
+        catch (error) { setProbe({ error: String(error?.message ?? error) }); }
+        finally { setProbing(false); }
+      };
       const set = (k, v) => setForm({ ...form, [k]: v });
       const save = () => {
         try {
@@ -502,6 +530,42 @@ window.__ModuleLoader__.load({
           : null,
         React.createElement("input", { style: C.input, placeholder: "cwd(默认工作目录,可空)", value: form.cwd ?? "", onChange: (e) => set("cwd", e.target.value) }),
         React.createElement("input", { style: C.input, placeholder: "固定模型(可空,如 opencode/deepseek-v4.1-flash;空=用默认)", value: form.model ?? "", onChange: (e) => set("model", e.target.value) }),
+        // ---- 可用模型折叠区 ----
+        React.createElement("div", { style: { border: "1px dashed rgba(128,128,128,.4)", borderRadius: 9, padding: "6px 8px" } },
+          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }, onClick: () => setModelsOpen(!modelsOpen) },
+            React.createElement("span", { style: { opacity: .7 } }, modelsOpen ? "▾" : "▸"),
+            React.createElement("span", { style: { fontWeight: 600 } }, "可用模型"),
+            React.createElement("span", { style: { opacity: .55, fontSize: 11 } },
+              (form.models ?? []).length
+                ? `已勾选 ${form.models.length}${probe?.models ? ` / 探测到 ${probe.models.length}` : ""}`
+                : "不限制(展开 → 探测,读取该 harness 的模型)"),
+          ),
+          modelsOpen ? React.createElement(React.Fragment, null,
+            React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", margin: "5px 0" } },
+              React.createElement("button", { style: C.btn, disabled: probing || isNew, onClick: () => void doProbe() },
+                probing ? "探测中…(拉起 harness 需数十秒)" : "↻ 探测可用模型"),
+              isNew ? React.createElement("span", { style: { opacity: .55, fontSize: 11 } }, "新节点先保存再探测") : null,
+              probe?.error ? React.createElement("span", { style: { color: "#e5534b", fontSize: 11 } }, probe.error) : null,
+            ),
+            probe?.models ? React.createElement("div", { style: { maxHeight: 180, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3 } },
+              probe.models.map((m) => React.createElement("label", { key: m.modelId, style: { display: "flex", gap: 6, alignItems: "center", fontSize: 12, cursor: "pointer" } },
+                React.createElement("input", {
+                  type: "checkbox", checked: (form.models ?? []).includes(m.modelId),
+                  onChange: (e) => {
+                    const cur = new Set(form.models ?? []);
+                    if (e.target.checked) cur.add(m.modelId); else cur.delete(m.modelId);
+                    set("models", [...cur]);
+                  },
+                }),
+                React.createElement("span", null, m.name),
+                m.modelId !== m.name ? React.createElement("span", { style: { opacity: .5, fontSize: 11 } }, m.modelId) : null,
+                probe.currentModelId === m.modelId ? React.createElement("span", { style: { opacity: .5, fontSize: 11 } }, "(harness 当前)") : null,
+              )),
+            ) : null,
+            probe?.models ? React.createElement("div", { style: { opacity: .55, fontSize: 11, marginTop: 4 } },
+              "勾选 = 该节点允许用的模型(派发的模型覆盖必须在名单内);全不勾 = 不限制。保存后生效。") : null,
+          ) : null,
+        ),
         React.createElement("textarea", { style: { ...C.input, minHeight: 40 }, placeholder: "env(每行 K=V,可空)", value: form.envText ?? "", onChange: (e) => set("envText", e.target.value) }),
         React.createElement("input", { style: C.input, placeholder: "描述(中文,可选)", value: form.description ?? "", onChange: (e) => set("description", e.target.value) }),
         err ? React.createElement("div", { style: { color: "#e5534b", margin: "4px 0" } }, err) : null,
@@ -589,7 +653,7 @@ window.__ModuleLoader__.load({
           React.createElement("div", { key: n.name, style: C.row },
             React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
               n.name, " ",
-              React.createElement("span", { style: { opacity: .55, fontSize: 11 } }, `${n.type} · ${n.target} · ${n.command}${n.args?.length ? ` ${n.args.join(" ")}` : ""}${n.running ? ` · 在跑${n.running}` : ""}`),
+              React.createElement("span", { style: { opacity: .55, fontSize: 11 } }, `${n.type} · ${n.target} · ${n.command}${n.args?.length ? ` ${n.args.join(" ")}` : ""}${n.models?.length ? ` · 模型${n.models.length}选` : ""}${n.running ? ` · 在跑${n.running}` : ""}`),
             ),
             React.createElement("span", { style: { flex: "none", display: "flex", gap: 4 } },
               React.createElement("button", { style: C.btn, onClick: () => store.set({ editing: { ...n, args: (n.args ?? []).join(" "), envText: Object.entries(n.env ?? {}).map(([k, v]) => `${k}=${v}`).join("\n") } }) }, "编辑"),

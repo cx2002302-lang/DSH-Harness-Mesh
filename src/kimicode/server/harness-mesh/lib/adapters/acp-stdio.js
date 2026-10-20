@@ -137,6 +137,8 @@ export class AcpStdioAdapter {
   async newSession(cwd, model) {
     await this.ensureRunning();
     const res = await this.connection.agent.request(AGENT_METHODS.session_new, { cwd, mcpServers: [] });
+    this.lastSessionNewRes = res;  // listModels 探测用:availableModels/configOptions 在这个响应里
+    console.log(`[harness-mesh] session/new 响应键: ${Object.keys(res ?? {})} ${res?.configOptions ? `configOptions=${res.configOptions.length}` : ""}${res?.models ? "有models字段" : ""}`);
     // 节点固定了模型(默认模型端点故障时可切到可用模型):session/set_model {sessionId, modelId}
     const effModel = model ?? this.node.model;
     if (effModel) {
@@ -149,6 +151,30 @@ export class AcpStdioAdapter {
       }
     }
     return res.sessionId;
+  }
+
+  /** 探测该 harness 的可用模型:开临时会话读 session/new 的 models 字段,读完 cancel 释放。
+   * @returns {{models: Array<{modelId: string, name: string}>, currentModelId: string|null}} */
+  async listModels(cwd) {
+    const sessionId = await this.newSession(cwd ?? this.node.cwd ?? process.cwd(), null);
+    try { await this.cancel(sessionId); } catch { /* 尽力释放 */ }
+    const res = this.lastSessionNewRes ?? {};
+    // 两种形状都认:①标准 ACP res.models.availableModels;②opencode 方言 configOptions[category=model] 的 select(裸抓实测)
+    const acp = res?.models?.availableModels ?? [];
+    if (acp.length) {
+      return {
+        models: acp.map((m) => ({ modelId: String(m.modelId ?? ""), name: String(m.name ?? m.modelId ?? "") })).filter((m) => m.modelId),
+        currentModelId: res?.models?.currentModelId ?? null,
+      };
+    }
+    const opt = (res?.configOptions ?? []).find((o) => o?.category === "model" && Array.isArray(o.options));
+    if (opt) {
+      return {
+        models: opt.options.map((o) => ({ modelId: String(o.value ?? ""), name: String(o.name ?? o.value ?? "") })).filter((m) => m.modelId),
+        currentModelId: opt.currentValue ?? null,
+      };
+    }
+    return { models: [], currentModelId: null };
   }
 
   /** 发起一轮 prompt;整个回合(含权限交互)完成后才 resolve。 */

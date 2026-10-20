@@ -497,6 +497,50 @@ describe("newSession", () => {
     assert.equal(await p, undefined);
   });
 
+  test("listModels:opencode 方言 configOptions[category=model] → 模型清单+当前值", async () => {
+    const { adapter, agent } = await boot();
+    const p = adapter.listModels("/repo");
+    const reqNew = await agent.waitFor((m) => m.method === "session/new");
+    agent.respond(reqNew, {
+      sessionId: "sess-m1",
+      configOptions: [
+        { id: "mode", category: "mode", type: "select", currentValue: "build", options: [{ value: "build", name: "Build" }] },
+        { id: "model", category: "model", type: "select", currentValue: "zai/glm-5.3",
+          options: [{ value: "zai/glm-5.3", name: "GLM 5.3" }, { value: "opencode/deepseek-v4.1", name: "DeepSeek 4.1" }] },
+      ],
+    });
+    const r = await p;
+    assert.deepEqual(r.models, [
+      { modelId: "zai/glm-5.3", name: "GLM 5.3" },
+      { modelId: "opencode/deepseek-v4.1", name: "DeepSeek 4.1" },
+    ]);
+    assert.equal(r.currentModelId, "zai/glm-5.3");
+  });
+
+  test("listModels:标准 ACP models.availableModels 优先;都没有 → 空清单不抛错", async () => {
+    const { adapter, agent } = await boot();
+    const p = adapter.listModels("/repo");
+    const reqNew = await agent.waitFor((m) => m.method === "session/new");
+    agent.respond(reqNew, {
+      sessionId: "sess-m2",
+      models: { availableModels: [{ modelId: "a/1", name: "A1" }], currentModelId: "a/1" },
+      configOptions: [{ id: "model", category: "model", options: [{ value: "x/9", name: "X9" }] }],  // 方言也在,但标准优先
+    });
+    const r = await p;
+    assert.deepEqual(r.models, [{ modelId: "a/1", name: "A1" }]);
+    assert.equal(r.currentModelId, "a/1");
+
+  });
+
+  test("listModels:两种形状都没有 → 空清单不抛错", async () => {
+    const { adapter, agent } = await boot();
+    const p = adapter.listModels("/repo");
+    const reqNew = await agent.waitFor((m) => m.method === "session/new");
+    agent.respond(reqNew, { sessionId: "sess-m3" });
+    const r = await p;
+    assert.deepEqual(r, { models: [], currentModelId: null });
+  });
+
   test("未启动时 newSession 自动 ensureRunning", async () => {
     const { adapter } = makeAdapter();
     const p = adapter.newSession("/repo", undefined);

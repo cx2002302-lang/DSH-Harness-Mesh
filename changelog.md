@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2 — 2026-10-20
+
+- 节点管理"可用模型":探测按钮读 harness 真实模型表(兼容标准 ACP availableModels 与 opencode configOptions 方言),折叠区勾选白名单;派发表单模型位随白名单变下拉;名单外模型 dispatch 拒绝
+- 探测零重启:一次性适配器实例 + 热加载;DSB 按钮免 token 直开(v1.1.1/v1.1.2 并入本线)
+
 ## v1.1.2 — 2026-10-19(热修)
 
 - 修 v1.1.1 的 iframe 预登录竞态:空 iframe 的 about:blank onload 抢跑导致预登录被提前摘除(无头浏览器实测抓到,先指 src 再入 DOM)

@@ -479,6 +479,27 @@ test("MCP harness_session:两段式确认 → 执行 stop;token 一次性;过期
   assert.ok(newIds[0].includes("原任务")); // 按原 prompt 重新派发
 });
 
+// ================= 模型探测(2026-10-20:节点管理"探测可用模型") =================
+// 注意:探测走 nodes 存取 + 一次性适配器实例(零重启设计),不经过 mesh——成功路径由
+// adapter-stdio/plug 测试(listModels 双形状提取)与 e2e 真机探测覆盖,这里只测路由分流。
+test("POST /probe-models:未知节点 → 404;未注册类型 → 400", async () => {
+  const res = await handle(req("/api/harness-mesh/probe-models", { method: "POST", body: { name: "ghost" } }), deps(undefined, makeNodes()));
+  assert.equal(res.status, 404);
+  assert.match(res.data.error, /ghost/);
+
+  const nodes2 = makeNodes();
+  nodes2.save({ name: "oneshot", type: "cli-oneshot", command: "echo" });
+  const res2 = await handle(req("/api/harness-mesh/probe-models", { method: "POST", body: { name: "oneshot" } }), deps(undefined, nodes2));
+  assert.equal(res2.status, 400);
+  assert.match(res2.data.error, /未注册|不支持/);
+});
+
+test("GET /nodes?probeModels=<name>:老路由表 shim,未知节点 → 404", async () => {
+  const res = await get("/api/harness-mesh/nodes", "?probeModels=ghost", makeMesh(), makeNodes());
+  assert.equal(res.status, 404);
+  assert.equal(res.data.ok, false);
+});
+
 // ================= DSB 登录地址(2026-10-19:token 不出地址栏) =================
 test("GET /dsb-open:有 token → {url(带token), cleanUrl(干净)};Host 头决定主机名", async () => {
   const saved = { t: process.env.DSH_DSB_TOKEN, w: process.env.DSH_WEB_TOKEN };
