@@ -600,7 +600,7 @@ window.__ModuleLoader__.load({
       return React.createElement("div", null,
         React.createElement("div", { style: C.row },
           React.createElement("span", { style: { cursor: "pointer", userSelect: "none", opacity: .75, flex: "none", width: 14 }, title: "展开/折叠可用模型", onClick: () => setOpen(!open) }, open ? "▾" : "▸"),
-          React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }, onClick: () => setOpen(!open) },
+          React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer", flex: "1 1 auto", minWidth: 0 }, onClick: () => setOpen(!open) },
             n.name, " ",
             React.createElement("span", { style: { opacity: .55, fontSize: 11 } }, `${n.type} · ${n.target} · ${n.command}${n.args?.length ? ` ${n.args.join(" ")}` : ""}${models.length ? ` · 模型${models.length}选` : ""}${n.running ? ` · 在跑${n.running}` : ""}`),
           ),

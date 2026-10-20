@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.5 — 2026-10-20
+
+- 名册行名字左对齐(修复 space-between 把名字挤到行中间)
+
 ## v1.2.4 — 2026-10-20
 
 - workbuddy 模型清单对齐 GUI 选择器:新增官方目录缓存(acc-product-config-v3.json)源,自带 45 + 自定义 4 全量上报,自定义项独立标记
