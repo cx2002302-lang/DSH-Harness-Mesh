@@ -276,9 +276,6 @@ window.__ModuleLoader__.load({
           React.createElement("button", { style: item, onClick: () => openView("console", "任务") }, "📋 任务 · 派发与进度"),
         ),
         React.createElement("div", { style: { borderTop: "1px solid rgba(128,128,128,.14)" } },
-          React.createElement("button", { style: item, onClick: () => openView("qoderchat", "qoder-chat") }, "💬 qoder-chat · 聊天"),
-        ),
-        React.createElement("div", { style: { borderTop: "1px solid rgba(128,128,128,.14)" } },
           React.createElement("button", { style: item, onClick: () => openView("nodes", "配置") }, "⚙ 配置 · 节点管理"),
         ),
         // 最底行:📋 项目管理(原输入栏 project-hub 图标并入此处,老徐 10-18 定位置;
@@ -697,101 +694,6 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // ==================== qoder-chat 聊天 tab ====================
-    // 会话保持在本组件 state(不持久化);发送 = dispatch CHINAMI-qoder + 3s 轮询 task,终态贴结论。
-    const QODER_HARNESS = "CHINAMI-qoder";
-    function ChatTab() {
-      const [messages, setMessages] = React.useState([]);   // {role:"user"|"qoder", text, error?, state?}
-      const [draft, setDraft] = React.useState("");
-      const [busy, setBusy] = React.useState(false);
-      const listRef = React.useRef(null);
-      React.useEffect(() => {
-        const el = listRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      }, [messages]);
-      const append = (msg) => setMessages((prev) => [...prev, msg]);
-      const send = async () => {
-        const prompt = draft.trim();
-        if (!prompt || busy) return;
-        setDraft("");
-        setBusy(true);
-        append({ role: "user", text: prompt });
-        let taskId = null;
-        try {
-          const res = await api.dispatch({ harness: QODER_HARNESS, prompt });
-          taskId = res.task_id;
-          append({ role: "qoder", text: "", pending: true, taskId });
-        } catch (error) {
-          // 同步报错(如节点不存在):立刻贴错误气泡
-          append({ role: "qoder", text: String(error?.message ?? error), error: true });
-          setBusy(false);
-          return;
-        }
-        // 3s 轮询;10 分钟兜底超时
-        const startedAt = Date.now();
-        const poll = async () => {
-          try {
-            const { status } = await api.task(taskId);
-            if (TERMINAL.has(status.state)) {
-              const r = status.result ?? {};
-              const text = r.summary || r.text || r.conclusion || status.error || "(无汇报文本)";
-              setMessages((prev) => prev.map((m) => m.taskId === taskId ? { ...m, pending: false, text, error: status.state !== "succeeded", state: status.state } : m));
-              setBusy(false);
-              return;
-            }
-          } catch (error) {
-            // task 查询失败(如 dispatch 实际失败):贴错误并终止
-            setMessages((prev) => prev.map((m) => m.taskId === taskId ? { ...m, pending: false, text: String(error?.message ?? error), error: true } : m));
-            setBusy(false);
-            return;
-          }
-          if (Date.now() - startedAt > 600000) {
-            setMessages((prev) => prev.map((m) => m.taskId === taskId ? { ...m, pending: false, text: "轮询超时(10 分钟未到终态)", error: true, state: "timeout" } : m));
-            setBusy(false);
-            return;
-          }
-          setTimeout(poll, 3000);
-        };
-        setTimeout(poll, 3000);
-      };
-      const bubble = (m, i) => {
-        const isUser = m.role === "user";
-        return React.createElement("div", { key: i, style: { display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", margin: "2px 0" } },
-          React.createElement("div", {
-            "data-qoder-chat-bubble": isUser ? "user" : "qoder",
-            style: {
-              maxWidth: "78%", padding: "6px 10px", borderRadius: isUser ? "10px 10px 3px 10px" : "10px 10px 10px 3px",
-              whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12.5,
-              background: m.error ? "rgba(229,83,75,.14)" : isUser ? "rgba(77,163,255,.20)" : "rgba(128,128,128,.18)",
-              border: `1px solid ${m.error ? "rgba(229,83,75,.5)" : isUser ? "rgba(77,163,255,.4)" : "rgba(128,128,128,.3)"}`,
-              color: m.error ? "#e5534b" : "inherit",
-            },
-          },
-          m.pending ? React.createElement("span", { style: { opacity: .6 } }, "⏳ qoder 处理中…") : m.text,
-          m.state && !m.pending ? React.createElement("span", { style: { opacity: .55, fontSize: 11, marginLeft: 6 } }, stateText(m.state)) : null,
-          ),
-        );
-      };
-      return React.createElement("div", { style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, gap: 8 } },
-        React.createElement("div", { ref: listRef, style: { flex: 1, minHeight: 120, overflowY: "auto", display: "flex", flexDirection: "column", padding: "4px 2px" } },
-          messages.length === 0
-            ? React.createElement("div", { style: { opacity: .55, fontSize: 12 } }, `与 ${QODER_HARNESS} 聊天。Enter 发送,Shift+Enter 换行。`)
-            : messages.map(bubble),
-        ),
-        React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "flex-end" } },
-          React.createElement("textarea", {
-            "aria-label": "qoder-chat 输入", style: { ...C.input, minHeight: 44, resize: "vertical", flex: 1 },
-            placeholder: busy ? "qoder 处理中…" : `发给 ${QODER_HARNESS}…(Enter 发送,Shift+Enter 换行)`,
-            value: draft, disabled: busy,
-            onChange: (e) => setDraft(e.target.value),
-            onKeyDown: (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } },
-          }),
-          React.createElement("button", { style: C.btnPrimary, disabled: busy || !draft.trim(), onClick: () => void send() },
-            busy ? "发送中…" : "发送"),
-        ),
-      );
-    }
-
     // ==================== 控制台面板(overlay slot) ====================
     function ConsolePanel() {
       const s = useStore();
@@ -809,14 +711,13 @@ window.__ModuleLoader__.load({
         React.createElement("div", { style: C.panel, role: "dialog", "aria-label": "Harness 组网" },
           React.createElement("div", { style: C.head },
             React.createElement("span", { style: { fontWeight: 700, marginRight: "auto", fontSize: 14 } },
-              s.tab === "console" ? "📋 Harness 任务" : s.tab === "qoderchat" ? "💬 qoder-chat" : "⚙ Harness 配置"),
+              s.tab === "console" ? "📋 Harness 任务" : "⚙ Harness 配置"),
             React.createElement("button", { style: { ...C.btn }, onClick: () => store.set({ open: false, menuOpen: false }) }, "✕"),
           ),
           React.createElement("div", { style: C.body },
             s.err ? React.createElement("div", { style: { color: "#e5534b" } }, s.err) : null,
             s.notice ? React.createElement("div", { style: { color: "#7bc86c" } }, s.notice) : null,
             s.tab === "console" ? React.createElement(ConsoleTab, null)
-              : s.tab === "qoderchat" ? React.createElement(ChatTab, null)
               : React.createElement(NodesTab, null),
           ),
         ),
