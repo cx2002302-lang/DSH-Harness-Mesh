@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.2 — 2026-10-20
+
+- workbuddy/zcode 适配器在 session/new 上报模型表(configOptions 方言),mesh 可直接探测
+- 名册行加手填兜底;harness 不支持选模型时 set_model 诚实拒绝而非静默跑错
+
 ## v1.2.1 — 2026-10-20
 
 - 交互调整:可用模型从编辑表单移到名册行内(▸ 展开 → 探测 → 勾选即自动保存)

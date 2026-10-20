@@ -565,6 +565,8 @@ window.__ModuleLoader__.load({
       const [probing, setProbing] = React.useState(false);
       const [saving, setSaving] = React.useState(false);
       const [models, setModels] = React.useState(n.models ?? []);
+      const [manual, setManual] = React.useState("");         // 手填模型 id 输入框内容
+      const [manualBad, setManualBad] = React.useState(false); // 重复输入时闪红边框
       React.useEffect(() => { setModels(n.models ?? []); }, [JSON.stringify(n.models ?? [])]);  // 名册刷新跟随
       const doProbe = async () => {
         setProbing(true); setProbe(null);
@@ -579,6 +581,17 @@ window.__ModuleLoader__.load({
         try { await api.saveNode({ ...n, models: next }); await refreshNodes(); }
         catch (error) { store.set({ err: `保存模型勾选失败: ${String(error?.message ?? error)}` }); }
         finally { setSaving(false); }
+      };
+      const addManual = async () => {
+        const value = manual.trim();
+        if (!value || value.length > 128) { setManual(""); return; }
+        if (models.includes(value)) {  // 重复:闪红边框 600ms 提示
+          setManualBad(true);
+          setTimeout(() => setManualBad(false), 600);
+          return;
+        }
+        setManual("");
+        await toggle(value, true);
       };
       // 渲染清单 = 探测结果 ∪ 已勾白名单(探测过的显示友好名,白名单里探测不到的留 modelId)
       const listed = new Map();
@@ -615,8 +628,18 @@ window.__ModuleLoader__.load({
               probe?.currentModelId === id ? React.createElement("span", { style: { opacity: .5, fontSize: 11 } }, "(harness 当前)") : null,
             )),
           ) : null,
-          listed.size ? React.createElement("div", { style: { opacity: .55, fontSize: 11, marginTop: 4 } },
-            "勾选 = 该节点允许用的模型(派发的模型覆盖必须在名单内),勾选即保存;全不勾 = 不限制。") : null,
+          React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 4 } },
+            React.createElement("input", {
+              style: { ...C.input, width: 260, ...(manualBad ? { borderColor: "#e5534b" } : null) },
+              placeholder: "手填模型 id,回车添加(如 zcode/glm-4.6)",
+              value: manual,
+              onChange: (e) => setManual(e.target.value),
+              onKeyDown: (e) => { if (e.key === "Enter") void addManual(); },
+              onBlur: () => void addManual(),
+            }),
+          ),
+          React.createElement("div", { style: { opacity: .55, fontSize: 11, marginTop: 4 } },
+            "勾选 = 该节点允许用的模型(派发的模型覆盖必须在名单内),勾选即保存;全不勾 = 不限制。"),
         ) : null,
       );
     }

@@ -50,7 +50,70 @@ def load_config():
                 cfg["auth"] = d["auth"]
         except Exception as e:
             log(f"gateway-config.json 读取失败(忽略): {e}")
+    # 模型清单来源(优先级):①env GATEWAY_MODELS(逗号分隔) ②workbuddy 本体注册表 ~/.workbuddy/models.json
+    #                    ③gateway-config.json "models" ④gateway GET /api/models
+    env_models = [m.strip() for m in os.environ.get("GATEWAY_MODELS", "").split(",") if m.strip()]
+    # ② workbuddy 本体的模型注册表(权威源):USERPROFILE(或 HOME)下 .workbuddy/models.json,
+    #    对象数组,每项 {"id","name","vendor",...},取 id(空则 name)字符串;文件不存在/解析失败静默跳过。
+    wb_models = []
+    wb_home = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+    wb_path = os.path.join(wb_home, ".workbuddy", "models.json")
+    if os.path.exists(wb_path):
+        try:
+            with open(wb_path, "r", encoding="utf-8") as f:
+                wb_items = json.load(f)
+            for it in (wb_items if isinstance(wb_items, list) else []):
+                if isinstance(it, dict):
+                    v = it.get("id") or it.get("name")
+                    if isinstance(v, str) and v.strip():
+                        wb_models.append(v.strip())
+        except Exception as e:
+            log(f".workbuddy/models.json 读取失败(忽略): {e}")
+    file_models = []
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            file_models = [str(m).strip() for m in (d.get("models") or []) if str(m).strip()]
+        except Exception as e:
+            log(f"gateway-config.json models 读取失败(忽略): {e}")
+    gw_models = probe_gateway_models(cfg["url"], cfg["auth"])
+    # 四源合并去重,保序:env → .workbuddy/models.json → gateway-config.json → /api/models
+    seen, models = set(), []
+    for m in env_models + wb_models + file_models + gw_models:
+        if m not in seen:
+            seen.add(m)
+            models.append(m)
+    cfg["models"] = models
+    cfg["model"] = os.environ.get("GATEWAY_MODEL", "") or (models[0] if models else "")
     return cfg
+
+
+def probe_gateway_models(base, auth):
+    """机会性查询 gateway GET /api/models(超时 2s),任何失败静默返回空表。
+    兼容 {"models":[...]} 与 ["...",...] 两种形状,元素取字符串或对象的 id|name 字段。"""
+    try:
+        headers = {"Accept": "application/json"}
+        if auth:
+            headers["Authorization"] = f"Bearer {auth}"
+        req = urllib.request.Request(base.rstrip("/") + "/api/models", headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=2) as r:
+            d = json.loads(r.read().decode("utf-8", "replace") or "null")
+    except Exception as e:
+        log(f"/api/models 探测失败(忽略): {e}")
+        return []
+    items = d.get("models") if isinstance(d, dict) else d
+    if not isinstance(items, list):
+        return []
+    out = []
+    for it in items:
+        if isinstance(it, str) and it.strip():
+            out.append(it.strip())
+        elif isinstance(it, dict):
+            v = it.get("id") or it.get("name")
+            if isinstance(v, str) and v.strip():
+                out.append(v.strip())
+    return out
 
 
 # ---------- Gateway 客户端(形状待实测回填) ----------
@@ -59,6 +122,8 @@ class GatewayClient:
     def __init__(self, cfg):
         self.base = cfg["url"].rstrip("/")
         self.auth = cfg["auth"]
+        self.models = cfg.get("models") or []
+        self.model = cfg.get("model") or ""
 
     def _req(self, method, path, body=None, timeout=60):
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -76,8 +141,12 @@ class GatewayClient:
         return r.get("run_id") or r.get("id") or r.get("runId") or r
 
     # [TODO:实测] 发 prompt:假设 POST /api/runs/{id}/messages {prompt}
-    def send_prompt(self, run_id, text):
-        return self._req("POST", f"/api/runs/{run_id}/messages", {"prompt": text})
+    # session 上选了 model 就一并附上(gateway 不认也无害)
+    def send_prompt(self, run_id, text, model=None):
+        body = {"prompt": text}
+        if model:
+            body["model"] = model
+        return self._req("POST", f"/api/runs/{run_id}/messages", body)
 
     # [TODO:实测] 查 run:假设 GET /api/runs/{id} → {state, messages|output, error}
     def poll_run(self, run_id):
@@ -180,9 +249,26 @@ class AcpServer:
                 run_id = self.gw.create_run(cwd)
                 self.sessions[sid] = {"run_id": run_id, "cwd": cwd, "done": False}
                 log(f"session/new -> {sid} (run={run_id}, cwd={cwd})")
-                self._result(mid, {"sessionId": sid})
+                # 上报可用模型表(opencode 方言 configOptions),清单为空则保持原样
+                result = {"sessionId": sid}
+                if self.gw.models:
+                    result["configOptions"] = [{
+                        "id": "model", "name": "Model", "category": "model",
+                        "type": "select", "currentValue": self.gw.model,
+                        "options": [{"value": m, "name": m} for m in self.gw.models],
+                    }]
+                self._result(mid, result)
             except Exception as e:
                 self._error(mid, -32000, f"gateway create_run failed: {e}")
+        elif method == "session/set_model":
+            sid = params.get("sessionId")
+            st = self.sessions.get(sid)
+            if not st:
+                self._error(mid, -32001, f"unknown session: {sid}")
+                return
+            st["model"] = params.get("modelId") or params.get("model") or ""
+            log(f"session/set_model {sid} -> {st['model']}")
+            self._result(mid, {})
         elif method == "session/prompt":
             sid = params.get("sessionId")
             st = self.sessions.get(sid)
@@ -192,7 +278,7 @@ class AcpServer:
             text = "".join(b.get("text", "") for b in params.get("prompt", [])
                            if isinstance(b, dict) and b.get("type") == "text")
             try:
-                self.gw.send_prompt(st["run_id"], text)
+                self.gw.send_prompt(st["run_id"], text, st.get("model"))
             except Exception as e:
                 self._error(mid, -32000, f"gateway send_prompt failed: {e}")
                 return

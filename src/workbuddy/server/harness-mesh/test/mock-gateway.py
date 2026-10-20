@@ -13,6 +13,11 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code); self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
     def do_GET(self):
+        if self.path == "/api/models":   # 供 wb-gateway-adapter 机会性探测模型清单
+            return self._json({"models": [
+                {"id": "wb-coder-pro", "name": "wb-coder-pro"},
+                {"id": "wb-chat-lite", "name": "wb-chat-lite"},
+            ]})
         if self.path.startswith("/api/runs/"):
             rid = self.path.rsplit("/", 1)[1]
             r = RUNS.get(rid)
