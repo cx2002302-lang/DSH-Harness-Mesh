@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.3 — 2026-10-20
+
+- wb-gateway-adapter 回收生产 v5 真身(端口自动发现/PEB 密码),补模型上报;修复 prompt 阻塞导致 session/cancel 失灵
+- workbuddy 探测实测返回 4 型号(MiniMax-M3.1-Flash-Preview / kimi-K2.7-Code / kimi-k2.6 / glm-5.3)
+
 ## v1.2.2 — 2026-10-20
 
 - workbuddy/zcode 适配器在 session/new 上报模型表(configOptions 方言),mesh 可直接探测

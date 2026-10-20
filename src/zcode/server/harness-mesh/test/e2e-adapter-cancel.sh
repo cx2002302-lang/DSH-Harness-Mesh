@@ -5,9 +5,9 @@
 #   python3 scripts/harnessd.py --host 127.0.0.1 --port 7080 --plugs scripts/plugs-loopback.json &
 #   主 GUI 加临时节点 wb-adapter-test(acp-plug @ 127.0.0.1:7080#wb-adapter)
 # 判定:PASS = mock.log 有 "CANCELLED via gateway";FAIL = 只靠主控强杀(mock 0 次)
-# 判定:PASS = mock.log 有 "CANCELLED via gateway";FAIL = 只靠主控强杀(mock 0 次)
 BASE=http://127.0.0.1:80; JAR=/tmp/hm-cancel-jar.txt
-curl -s -m 5 -c $JAR -L -o /dev/null "$BASE/?token=<DSH_TOKEN>   # 跑前换成你的实际 token"
+: "${DSH_TOKEN:?用法:DSH_TOKEN=<你的GUI token> bash test/e2e-adapter-cancel.sh}"
+curl -s -m 5 -c $JAR -L -o /dev/null "$BASE/?token=$DSH_TOKEN"
 R=$(curl -s -m 10 -b $JAR -X POST "$BASE/api/harness-mesh/dispatch" -H 'Content-Type: application/json' \
   -d '{"harness":"wb-adapter-test","prompt":"SLOW cancel-test:跑一个 30 秒的慢任务","cwd":"/tmp"}')
 TID=$(echo "$R" | python3 -c "import sys,json;print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null)

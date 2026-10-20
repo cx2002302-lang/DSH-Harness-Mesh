@@ -1,31 +1,55 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-wb-gateway-adapter.py — harness-mesh 适配器「A 壳 B 心」(v0.1 骨架)
+wb-gateway-adapter.py — harness-mesh 适配器「A 壳 B 心」(v5.0 REST runs 隔离版)
 
   对上(harnessd 侧): ACP over stdio, NDJSON, JSON-RPC 2.0, 协议版本 1
-     方法面(与 DSH 主控对齐的第一版最小集):
-       initialize / session/new / session/prompt / session/update(通知) / session/cancel
-  对下(本机): WorkBuddy GUI 的 CodeBuddy Gateway REST(GUI 活登录态)
-     配置: env GATEWAY_URL / GATEWAY_AUTH,或同目录 gateway-config.json 兜底
+  对下(本机): WorkBuddy Gateway 的 REST runs API(隔离任务形态):
+      POST /api/v1/runs          建独立 run(generic webhook 消息格式)
+      GET  /api/v1/runs/:id/stream  run 专属 SSE 结果流
+      POST /api/v1/runs/:id/cancel  取消
+      GET  /api/v1/status /health   状态(Bearer 密码鉴权)
 
-  ⚠️ Gateway REST 的精确形状(路径/字段/进度通道)待实测回填——
-     已定位 gateway 本体: resources/app.asar.unpacked/resources/extensions/remote-desktop/
-     下方 GatewayClient 的每个方法都标了 [TODO:实测],先按最小假设搭架,协议层不阻塞。
+  v5 架构(DSH 01:25 拍板):
+      session/new    → 本地生成 sessionId(记 cwd)
+      session/prompt → POST /api/v1/runs 建 run → 接 run SSE 流 →
+                       run 事件转 session/update(agent_message_chunk 带 messageId)→
+                       终态回单次 response {stopReason}
+      session/cancel → POST /api/v1/runs/:id/cancel
+      密码: PEB 读 serve 实例 env 的 CODEBUDDY_GATEWAY_PASSWORD(不硬编码不落盘)
+      端口: 自动发现(GATEWAY_URL > gateway-config.json > web-ui-port.json > 扫进程验标题)
 
   零依赖: 仅 python3 标准库。harnessd spawn 即用,无守护无状态。
+
+  2026-10-20 v5 真身从生产回收(此前仓库里是 v0.1 骨架,Gateway API 形状以本文件为准)。
 """
 import json
 import os
+import queue
+import re
+import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
-import threading
 
-VERSION = "0.1.0"
-MAX_TURN_WAIT_S = int(os.environ.get("ADAPTER_MAX_TURN_WAIT", "1800"))  # 单 turn 最长等待 30min
-POLL_INTERVAL_S = float(os.environ.get("ADAPTER_POLL_INTERVAL", "1.0"))
+VERSION = "5.2.1"
+CREATE_NO_WINDOW = 0x08000000  # pythonw 下 subprocess 默认会弹控制台窗口
+
+# 共享文件日志(DSH 侧也能读):生命周期全记录,定位"进程为什么死"
+FILE_LOG = os.environ.get("ADAPTER_LOG", r"D:\AgentHome\DshData\wb-green\v5-adapter.log")
+
+
+def flog(msg):
+    """生命周期日志:写共享文件(pythonw 下 stderr 不可见,这是唯一的可观测通道)"""
+    try:
+        line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] pid={os.getpid()} {msg}\n"
+        with open(FILE_LOG, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
+    log(msg)
 
 
 def log(msg):
@@ -33,242 +57,423 @@ def log(msg):
     sys.stderr.flush()
 
 
-# ---------- 配置 ----------
+# ---------- Gateway 端口发现 ----------
 
-def load_config():
-    cfg = {
-        "url": os.environ.get("GATEWAY_URL", "http://127.0.0.1:5845"),
-        "auth": os.environ.get("GATEWAY_AUTH", ""),
-    }
-    cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gateway-config.json")
-    if os.path.exists(cfg_path):
-        try:
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                d = json.load(f)
-            cfg["url"] = d.get("url", cfg["url"])
-            if d.get("auth") and not cfg["auth"]:
-                cfg["auth"] = d["auth"]
-        except Exception as e:
-            log(f"gateway-config.json 读取失败(忽略): {e}")
-    # 模型清单来源(优先级):①env GATEWAY_MODELS(逗号分隔) ②workbuddy 本体注册表 ~/.workbuddy/models.json
-    #                    ③gateway-config.json "models" ④gateway GET /api/models
-    env_models = [m.strip() for m in os.environ.get("GATEWAY_MODELS", "").split(",") if m.strip()]
-    # ② workbuddy 本体的模型注册表(权威源):USERPROFILE(或 HOME)下 .workbuddy/models.json,
-    #    对象数组,每项 {"id","name","vendor",...},取 id(空则 name)字符串;文件不存在/解析失败静默跳过。
-    wb_models = []
-    wb_home = os.environ.get("USERPROFILE") or os.path.expanduser("~")
-    wb_path = os.path.join(wb_home, ".workbuddy", "models.json")
-    if os.path.exists(wb_path):
-        try:
-            with open(wb_path, "r", encoding="utf-8") as f:
-                wb_items = json.load(f)
-            for it in (wb_items if isinstance(wb_items, list) else []):
-                if isinstance(it, dict):
-                    v = it.get("id") or it.get("name")
-                    if isinstance(v, str) and v.strip():
-                        wb_models.append(v.strip())
-        except Exception as e:
-            log(f".workbuddy/models.json 读取失败(忽略): {e}")
-    file_models = []
-    if os.path.exists(cfg_path):
-        try:
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                d = json.load(f)
-            file_models = [str(m).strip() for m in (d.get("models") or []) if str(m).strip()]
-        except Exception as e:
-            log(f"gateway-config.json models 读取失败(忽略): {e}")
-    gw_models = probe_gateway_models(cfg["url"], cfg["auth"])
-    # 四源合并去重,保序:env → .workbuddy/models.json → gateway-config.json → /api/models
-    seen, models = set(), []
-    for m in env_models + wb_models + file_models + gw_models:
-        if m not in seen:
-            seen.add(m)
-            models.append(m)
-    cfg["models"] = models
-    cfg["model"] = os.environ.get("GATEWAY_MODEL", "") or (models[0] if models else "")
-    return cfg
-
-
-def probe_gateway_models(base, auth):
-    """机会性查询 gateway GET /api/models(超时 2s),任何失败静默返回空表。
-    兼容 {"models":[...]} 与 ["...",...] 两种形状,元素取字符串或对象的 id|name 字段。"""
+def _curl_is_gateway(url, timeout=3):
     try:
-        headers = {"Accept": "application/json"}
-        if auth:
-            headers["Authorization"] = f"Bearer {auth}"
-        req = urllib.request.Request(base.rstrip("/") + "/api/models", headers=headers, method="GET")
-        with urllib.request.urlopen(req, timeout=2) as r:
-            d = json.loads(r.read().decode("utf-8", "replace") or "null")
+        with urllib.request.urlopen(urllib.request.Request(url, method="GET"), timeout=timeout) as r:
+            body = r.read(2048).decode("utf-8", "replace")
+            return "CodeBuddy Gateway" in body or "Remote Control" in body
+    except Exception:
+        return False
+
+
+def discover_gateway(cfg_url=None):
+    """发现 gateway。多池场景:优先选空闲池(busy=false)——避免附到正在执行任务的会话(死锁)。
+    返回 (base, password) 元组或 (None, None)"""
+    env_url = os.environ.get("GATEWAY_URL")
+    if cfg_url or env_url:
+        base = (cfg_url or env_url).rstrip("/")
+        return base, None  # 显式指定时不探 busy,密码由调用方读
+    candidates = []
+    home = os.path.expanduser("~")
+    for p in [os.path.join(home, ".codebuddy", "web-ui-port.json"),
+              os.path.join(home, ".workbuddy", "web-ui-port.json")]:
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                port = json.load(f).get("port")
+            if port and _curl_is_gateway(f"http://127.0.0.1:{port}"):
+                candidates.append(f"http://127.0.0.1:{port}")
+        except Exception:
+            pass
+    try:
+        out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=10,
+                             creationflags=CREATE_NO_WINDOW).stdout
+        ps = subprocess.run(["powershell", "-NoProfile", "-Command",
+                             "(Get-Process -Name WorkBuddy -ErrorAction SilentlyContinue).Id -join ','"],
+                            capture_output=True, text=True, encoding="utf-8",
+                            errors="replace", timeout=10,
+                            creationflags=CREATE_NO_WINDOW).stdout.strip()
+        wb_pids = {x.strip() for x in ps.split(",") if x.strip().isdigit()}
+        ports = set()
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[0] == "TCP" and "LISTENING" in line and parts[-1] in wb_pids:
+                try:
+                    ports.add(int(parts[1].rsplit(":", 1)[1]))
+                except Exception:
+                    pass
+        for port in sorted(ports):
+            base = f"http://127.0.0.1:{port}"
+            if base not in candidates and _curl_is_gateway(base):
+                candidates.append(base)
     except Exception as e:
-        log(f"/api/models 探测失败(忽略): {e}")
-        return []
-    items = d.get("models") if isinstance(d, dict) else d
-    if not isinstance(items, list):
-        return []
-    out = []
-    for it in items:
-        if isinstance(it, str) and it.strip():
-            out.append(it.strip())
-        elif isinstance(it, dict):
-            v = it.get("id") or it.get("name")
-            if isinstance(v, str) and v.strip():
-                out.append(v.strip())
-    return out
+        log(f"端口扫描异常: {e}")
+
+    # 对每个候选池:读密码 + 查 status(busy),优先空闲
+    scored = []
+    for base in candidates:
+        pw = discover_password(base)
+        busy = None
+        if pw:
+            try:
+                req = urllib.request.Request(base + "/api/v1/status",
+                                             headers={"Authorization": f"Bearer {pw}"})
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    d = json.loads(r.read().decode("utf-8", "replace"))
+                    busy = bool((d.get("data") or d).get("busy"))
+            except Exception:
+                pass
+        scored.append({"base": base, "password": pw, "busy": busy})
+        log(f"候选池 {base}: 密码={'有' if pw else '无'} busy={busy}")
+    if not scored:
+        return None, None
+    # 排序:密码有 > 空闲 > 未知  (busy=False 最优先)
+    scored.sort(key=lambda s: (0 if (s["password"] and s["busy"] is False) else
+                               1 if (s["password"] and s["busy"] is None) else 2))
+    best = scored[0]
+    log(f"选中池 {best['base']} (busy={best['busy']})")
+    return best["base"], best["password"]
 
 
-# ---------- Gateway 客户端(形状待实测回填) ----------
+# ---------- serve 实例 env 读取(取 gateway 密码,涉密不落盘) ----------
 
-class GatewayClient:
-    def __init__(self, cfg):
-        self.base = cfg["url"].rstrip("/")
-        self.auth = cfg["auth"]
-        self.models = cfg.get("models") or []
-        self.model = cfg.get("model") or ""
+def _read_proc_env(pid):
+    """读 Windows 进程环境变量(同用户会话,PEB → ProcessParameters → Environment)"""
+    import ctypes
+    import ctypes.wintypes as wt
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    ntdll = ctypes.WinDLL("ntdll")
+    k32.OpenProcess.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
+    k32.OpenProcess.restype = wt.HANDLE
+    k32.ReadProcessMemory.argtypes = [wt.HANDLE, wt.LPCVOID, wt.LPVOID, ctypes.c_size_t,
+                                      ctypes.POINTER(ctypes.c_size_t)]
+    k32.ReadProcessMemory.restype = wt.BOOL
+    ntdll.NtQueryInformationProcess.argtypes = [wt.HANDLE, ctypes.c_ulong, wt.LPVOID,
+                                                ctypes.c_ulong, wt.LPVOID]
+    ntdll.NtQueryInformationProcess.restype = ctypes.c_ulong
 
-    def _req(self, method, path, body=None, timeout=60):
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        if self.auth:
-            headers["Authorization"] = f"Bearer {self.auth}"
+    class PBI(ctypes.Structure):
+        _fields_ = [("R1", ctypes.c_void_p), ("Peb", ctypes.c_void_p), ("R2", ctypes.c_void_p),
+                    ("R3", ctypes.c_void_p), ("Pid", ctypes.c_void_p), ("R4", ctypes.c_void_p)]
+
+    class PEB(ctypes.Structure):
+        _fields_ = [("Reserved", ctypes.c_byte * 32), ("ProcessParameters", ctypes.c_void_p)]
+
+    class RUPP(ctypes.Structure):
+        _fields_ = [("Reserved", ctypes.c_byte * 128), ("Environment", ctypes.c_void_p)]
+
+    h = k32.OpenProcess(0x0410, False, pid)
+    if not h:
+        return None
+    try:
+        pbi = PBI()
+        if ntdll.NtQueryInformationProcess(h, 0, ctypes.byref(pbi), ctypes.sizeof(pbi), None) != 0:
+            return None
+        peb = PEB()
+        if not k32.ReadProcessMemory(h, pbi.Peb, ctypes.byref(peb), ctypes.sizeof(peb), None):
+            return None
+        params = RUPP()
+        if not k32.ReadProcessMemory(h, peb.ProcessParameters, ctypes.byref(params),
+                                     ctypes.sizeof(params), None):
+            return None
+        # 环境块大小不定(干净进程可能很小):自适应尝试,避免越界导致整体失败
+        for size in (65536, 32768, 16384, 8192, 4096):
+            buf = ctypes.create_string_buffer(size)
+            read = ctypes.c_size_t()
+            if k32.ReadProcessMemory(h, params.Environment, buf, size, ctypes.byref(read)):
+                raw = buf.raw[:read.value]
+                if b"\x00\x00" in raw:
+                    return raw.decode("utf-16-le", errors="replace")
+        return None
+    except Exception:
+        return None
+    finally:
+        k32.CloseHandle(h)
+
+
+def discover_password(base=None):
+    """env 指定 > netstat 找 gateway 端口 owner PID > PEB 读其 env
+    (不依赖 CIM——CIM 对部分进程的 CommandLine 返回空,实测踩坑)"""
+    env_pw = os.environ.get("GATEWAY_AUTH")
+    if env_pw:
+        return env_pw
+    try:
+        # 1) 从 base URL 拿端口
+        port = None
+        if base:
+            port = base.rstrip("/").rsplit(":", 1)[-1]
+        # 2) netstat 找该端口 owner
+        pid = None
+        if port:
+            out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace", timeout=10,
+                                 creationflags=CREATE_NO_WINDOW).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 4 and parts[0] == "TCP" and "LISTENING" in line \
+                        and parts[1].endswith(f":{port}"):
+                    pid = parts[-1]
+                    break
+        # 3) 没有就从 powershell 兜底找 --serve 实例(可能空,所以只在 2 失败时试)
+        if not pid:
+            ps = subprocess.run(["powershell", "-NoProfile", "-Command",
+                                 "Get-CimInstance Win32_Process -Filter \"Name='WorkBuddy.exe'\" | "
+                                 "Where-Object { $_.CommandLine -like '*--serve*' } | "
+                                 "Select-Object -ExpandProperty ProcessId"],
+                                capture_output=True, text=True, encoding="utf-8",
+                                errors="replace", timeout=10,
+                                creationflags=CREATE_NO_WINDOW).stdout
+            m = re.findall(r"\d+", ps)
+            if m:
+                pid = m[0]
+        if pid:
+            text = _read_proc_env(int(pid))
+            if text:
+                mm = re.search(r"CODEBUDDY_GATEWAY_PASSWORD=([^\x00]+)", text)
+                if mm:
+                    log(f"gateway 密码已获取(pid={pid},不落盘)")
+                    return mm.group(1)
+                log(f"pid={pid} env 里无 CODEBUDDY_GATEWAY_PASSWORD")
+            else:
+                log(f"pid={pid} env 读取失败")
+    except Exception as e:
+        log(f"密码获取异常: {e}")
+    return None
+
+
+# ---------- REST runs 客户端 ----------
+
+class RunsClient:
+    def __init__(self, base, password):
+        self.base = (base or "").rstrip("/")
+        self.password = password
+
+    def _req(self, method, path, body=None, timeout=120):
+        headers = {"Content-Type": "application/json"}
+        if self.password:
+            headers["Authorization"] = f"Bearer {self.password}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(self.base + path, data=data, headers=headers, method=method)
+        req = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode("utf-8", "replace")
             return json.loads(raw) if raw.strip() else {}
 
-    # [TODO:实测] 建 run:假设 POST /api/runs {cwd} → {run_id|id|runId, ...}
-    def create_run(self, cwd):
-        r = self._req("POST", "/api/runs", {"cwd": cwd})
-        return r.get("run_id") or r.get("id") or r.get("runId") or r
+    def create_run(self, text, cwd=None, timeout_ms=1800000):
+        rid = f"run-{os.getpid()}-{int(time.time()*1000)}"
+        body = {
+            "id": rid, "type": "text", "version": "1.0",
+            "source": {"platform": "generic", "sender": {"id": "harness-mesh"},
+                       "conversation": {"id": rid, "type": "direct"}},
+            "payload": {"text": text},
+            "timeoutMs": timeout_ms,
+        }
+        if cwd:
+            body["payload"]["cwd"] = cwd  # 先试收,不收就文本前缀(v5.1)
+        r = self._req("POST", "/api/v1/runs", body)
+        return (r.get("data") or r).get("runId")
 
-    # [TODO:实测] 发 prompt:假设 POST /api/runs/{id}/messages {prompt}
-    # session 上选了 model 就一并附上(gateway 不认也无害)
-    def send_prompt(self, run_id, text, model=None):
-        body = {"prompt": text}
-        if model:
-            body["model"] = model
-        return self._req("POST", f"/api/runs/{run_id}/messages", body)
+    def stream_run(self, run_id, on_event, stop_flag):
+        """接 run SSE 流,事件回调 on_event(dict);stop_flag 置位时返回"""
+        req = urllib.request.Request(f"{self.base}/api/v1/runs/{run_id}/stream", method="GET",
+                                     headers={"Accept": "text/event-stream",
+                                              "Authorization": f"Bearer {self.password}"})
+        n_events = 0
+        try:
+            flog(f"SSE 连接 run={run_id}")
+            with urllib.request.urlopen(req, timeout=300) as r:
+                buf = b""
+                while not stop_flag.is_set():
+                    chunk = r.read1(4096) if hasattr(r, "read1") else r.read(4096)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, _, buf = buf.partition(b"\n")
+                        line = line.strip()
+                        if line.startswith(b"data:"):
+                            n_events += 1
+                            try:
+                                on_event(json.loads(line[5:].strip()))
+                            except Exception:
+                                pass
+            flog(f"SSE EOF run={run_id} events={n_events}")
+        except urllib.error.HTTPError as e:
+            flog(f"SSE HTTPError {e.code} run={run_id}(404=run已完成流销毁)")
+            if e.code == 404:
+                return  # run 已完成,流销毁(正常)
+        except Exception as e:
+            flog(f"SSE 异常 run={run_id}: {type(e).__name__}: {e}")
 
-    # [TODO:实测] 查 run:假设 GET /api/runs/{id} → {state, messages|output, error}
-    def poll_run(self, run_id):
-        return self._req("GET", f"/api/runs/{run_id}")
-
-    # [TODO:实测] 取消:假设 POST /api/runs/{id}/cancel
     def cancel_run(self, run_id):
-        return self._req("POST", f"/api/runs/{run_id}/cancel", {})
+        try:
+            self._req("POST", f"/api/v1/runs/{run_id}/cancel", {}, timeout=30)
+        except Exception as e:
+            log(f"cancel 失败: {e}")
+
+    def status(self):
+        try:
+            return self._req("GET", "/api/v1/status", timeout=15)
+        except Exception:
+            return None
 
 
-# ---------- ACP server ----------
+# ---------- 模型清单上报(mesh 的 listModels 走 session/new 响应的 configOptions,opencode 方言) ----------
+
+def load_models():
+    """模型清单合并:.workbuddy/models.json(对象数组,每项取 id,空则 name;文件不在/解析失败静默)
+    为主,env GATEWAY_MODELS(逗号分隔)若给了则排在前面覆盖补充。合并去重保序。"""
+    file_models = []
+    base = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+    try:
+        with open(os.path.join(base, ".workbuddy", "models.json"), "r", encoding="utf-8") as f:
+            arr = json.load(f)
+        if isinstance(arr, list):
+            for item in arr:
+                mid = str(item.get("id") or item.get("name") or "").strip() if isinstance(item, dict) else ""
+                if mid and mid not in file_models:
+                    file_models.append(mid)
+    except Exception:
+        pass
+    env_models = [m.strip() for m in os.environ.get("GATEWAY_MODELS", "").split(",") if m.strip()]
+    seen, out = set(), []
+    for m in env_models + file_models:  # env 优先在前,文件清单补充去重
+        if m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
+
+
+# ---------- ACP stdio server ----------
 
 class AcpServer:
-    def __init__(self):
-        self.gw = GatewayClient(load_config())
-        self.sessions = {}
-        self.seq = 0
-        self.lock = threading.Lock()
+    IDLE_EXIT_S = int(os.environ.get("ADAPTER_IDLE_EXIT", "600"))  # 空闲自退(秒),防进程堆积
 
-    # --- stdio 收发 ---
-    # 2026-10-19 修复:session/prompt 改后台线程后,_send 会并发(泵线程发 update/result、
-    # 主循环发 error/响应),stdout 交叉写会产生半行坏 NDJSON——必须加写锁。
+    def __init__(self, client, state=None):
+        self.gw = client
+        self.state = state          # 后台发现状态(ready Event + base/password)
+        self.sessions = {}      # sessionId -> {run_id, cwd, stop_flag, done, stop, error}
+        self.seq = 0
+        self._io_lock = threading.Lock()
+        self.last_active = time.time()
+
+    def _ensure_gateway(self, timeout=60):
+        """prompt 前确保 gateway 发现完成(initialize/session-new 不调用,保持秒回)"""
+        if self.state is None:
+            return
+        if not self.state["ready"].wait(timeout):
+            raise RuntimeError(f"gateway 发现超时({timeout}s)")
+        if self.state.get("error"):
+            raise RuntimeError(f"gateway 发现失败: {self.state['error']}")
+        if not self.state.get("base"):
+            raise RuntimeError("未发现 gateway(WorkBuddy serve 实例不在?)")
+        self.gw.base = self.state["base"]
+        self.gw.password = self.state.get("password")
+
+    def _idle_watchdog(self):
+        """空闲超时自退:harnessd 不关 stdin 时,适配器自己退出,避免进程堆积"""
+        while True:
+            time.sleep(60)
+            busy = any(not st.get("done") for st in self.sessions.values())
+            if busy:
+                self.last_active = time.time()
+                continue
+            idle = time.time() - self.last_active
+            if idle > self.IDLE_EXIT_S:
+                log(f"空闲 {idle:.0f}s 超过 {self.IDLE_EXIT_S}s,自退(防堆积)")
+                sys.stderr.flush()
+                os._exit(0)
+
     def _send(self, obj):
-        with self.lock:
+        with self._io_lock:
             sys.stdout.buffer.write((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
             sys.stdout.buffer.flush()
 
-    def _result(self, rid, result):
-        self._send({"jsonrpc": "2.0", "id": rid, "result": result})
+    def _result(self, mid, result):
+        self._send({"jsonrpc": "2.0", "id": mid, "result": result})
 
-    def _error(self, rid, code, msg):
-        self._send({"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": msg}})
+    def _error(self, mid, code, msg):
+        self._send({"jsonrpc": "2.0", "id": mid, "error": {"code": code, "message": msg}})
 
-    def _notify(self, method, params):
-        self._send({"jsonrpc": "2.0", "method": method, "params": params})
-
-    def _update(self, session_id, text):
-        """转一条 agent_message_chunk 通知给主控侧"""
-        self._notify("session/update", {
+    def _update(self, session_id, text, thought=False):
+        self._send({"jsonrpc": "2.0", "method": "session/update", "params": {
             "sessionId": session_id,
-            "update": {"sessionUpdate": "agent_message_chunk",
-                       "content": {"type": "text", "text": text}},
-        })
+            "update": {"sessionUpdate": "agent_thought_chunk" if thought else "agent_message_chunk",
+                       "messageId": f"m-{session_id}",
+                       "content": {"type": "text", "text": text}}}})
 
-    # --- run 轮询泵:Gateway 事件 → session/update 通知流 ---
-    def _pump(self, session_id):
-        st = self.sessions.get(session_id)
-        if not st:
+    def _on_run_event(self, session_id, ev):
+        """run SSE 事件 → session/update(实测格式: {status, content:{markdown}, replyTo, agent})"""
+        if not isinstance(ev, dict):
             return
-        seen = 0
-        deadline = time.time() + MAX_TURN_WAIT_S
-        while time.time() < deadline:
-            if st.get("done"):
-                # session/cancel 已置终态(2026-10-19:cancel 后泵立刻收,不再等 gateway 轮询到 cancelled)
-                return
-            try:
-                run = self.gw.poll_run(st["run_id"])
-            except Exception as e:
-                self._update(session_id, f"[adapter] gateway 轮询失败(重试中): {e}")
-                time.sleep(2)
-                continue
-            msgs = run.get("messages") or run.get("output") or run.get("events") or []
-            for m in msgs[seen:]:
-                text = m.get("content") or m.get("text") or json.dumps(m, ensure_ascii=False)
-                self._update(session_id, text if isinstance(text, str) else str(text))
-            seen = max(seen, len(msgs))
-            state = str(run.get("state") or run.get("status") or "").lower()
-            if state in ("succeeded", "completed", "success", "done"):
+        status = ev.get("status") or ev.get("type") or ev.get("event") or ""
+        # 终态检测(实测 status: completed/failed)
+        if status in ("completed", "done", "finished", "succeeded", "run_completed"):
+            st = self.sessions.get(session_id)
+            if st:
                 st["done"], st["stop"] = True, "end_turn"
-                return
-            if state in ("failed", "error"):
-                st["done"], st["stop"], st["error"] = True, "end_turn", run.get("error") or "run failed"
-                return
-            if state in ("cancelled", "canceled"):
-                st["done"], st["stop"] = True, "cancelled"
-                return
-            time.sleep(POLL_INTERVAL_S)
-        st["done"], st["stop"], st["error"] = True, "end_turn", f"turn 超时({MAX_TURN_WAIT_S}s)"
+                # 结果文本(content.markdown 实测)
+                content = ev.get("content")
+                if isinstance(content, dict):
+                    text = content.get("markdown") or content.get("text") or content.get("content")
+                    if isinstance(text, str) and text.strip():
+                        st["result_text"] = text
+                elif isinstance(content, str) and content.strip():
+                    st["result_text"] = content
+            return
+        if status in ("failed", "error", "cancelled"):
+            st = self.sessions.get(session_id)
+            if st:
+                st["done"] = True
+                st["stop"] = "cancelled" if status == "cancelled" else "refusal"
+                st["error"] = ev.get("error") or ev.get("message") or f"run {status}"
+            return
+        # 过程文本(多种字段名兼容)
+        text = ev.get("text") or ev.get("message") or ev.get("delta")
+        if isinstance(text, dict):
+            text = text.get("text") or text.get("markdown") or json.dumps(text, ensure_ascii=False)
+        content = ev.get("content")
+        if not text and isinstance(content, dict):
+            text = content.get("markdown") or content.get("text")
+        if isinstance(text, str) and text.strip():
+            self._update(session_id, text)
 
-    # --- 方法分发 ---
     def handle(self, msg):
         mid = msg.get("id")
-        method = msg.get("method")
+        method = msg.get("method") or ""
         params = msg.get("params") or {}
+        self.last_active = time.time()
 
         if method == "initialize":
             self._result(mid, {
                 "protocolVersion": 1,
+                # 契约版本(hm-1):与主控侧对齐,便于版本协商
+                "contractVersion": "hm-1",
                 "agentCapabilities": {
                     "promptCapabilities": {"image": False, "audio": False, "embeddedContext": True},
                     "mcpCapabilities": {"http": False, "sse": False},
                 },
+                "authMethods": [],
             })
         elif method == "session/new":
-            with self.lock:
+            with self._io_lock:
                 self.seq += 1
                 sid = f"s-{os.getpid()}-{self.seq}"
             cwd = params.get("cwd") or os.getcwd()
-            try:
-                run_id = self.gw.create_run(cwd)
-                self.sessions[sid] = {"run_id": run_id, "cwd": cwd, "done": False}
-                log(f"session/new -> {sid} (run={run_id}, cwd={cwd})")
-                # 上报可用模型表(opencode 方言 configOptions),清单为空则保持原样
-                result = {"sessionId": sid}
-                if self.gw.models:
-                    result["configOptions"] = [{
-                        "id": "model", "name": "Model", "category": "model",
-                        "type": "select", "currentValue": self.gw.model,
-                        "options": [{"value": m, "name": m} for m in self.gw.models],
-                    }]
-                self._result(mid, result)
-            except Exception as e:
-                self._error(mid, -32000, f"gateway create_run failed: {e}")
-        elif method == "session/set_model":
-            sid = params.get("sessionId")
-            st = self.sessions.get(sid)
-            if not st:
-                self._error(mid, -32001, f"unknown session: {sid}")
-                return
-            st["model"] = params.get("modelId") or params.get("model") or ""
-            log(f"session/set_model {sid} -> {st['model']}")
-            self._result(mid, {})
+            self.sessions[sid] = {"run_id": None, "cwd": cwd, "stop_flag": threading.Event(),
+                                  "done": False, "stop": "end_turn"}
+            flog(f"session/new {sid} cwd={cwd}")
+            result = {"sessionId": sid}
+            models = load_models()  # 模型清单非空才上报 configOptions(opencode 方言 select)
+            if models:
+                result["configOptions"] = [{
+                    "id": "model", "name": "Model", "category": "model", "type": "select",
+                    "currentValue": os.environ.get("GATEWAY_MODEL") or models[0],
+                    "options": [{"value": m, "name": m} for m in models],
+                }]
+                flog(f"session/new {sid} 上报模型清单 {models} current={result['configOptions'][0]['currentValue']}")
+            self._result(mid, result)
         elif method == "session/prompt":
             sid = params.get("sessionId")
             st = self.sessions.get(sid)
@@ -278,56 +483,130 @@ class AcpServer:
             text = "".join(b.get("text", "") for b in params.get("prompt", [])
                            if isinstance(b, dict) and b.get("type") == "text")
             try:
-                self.gw.send_prompt(st["run_id"], text, st.get("model"))
+                self._ensure_gateway()   # 只有 prompt 才等 gateway(initialize/new 零依赖)
+                run_id = self.gw.create_run(text, cwd=st.get("cwd"))
             except Exception as e:
-                self._error(mid, -32000, f"gateway send_prompt failed: {e}")
+                flog(f"prompt 前置失败: {type(e).__name__}: {e}")
+                self._error(mid, -32000, f"create_run failed: {e}")
                 return
-            log(f"session/prompt {sid}: {text[:80]}")
-
-            # 2026-10-19 修复:原来在这里同步 `while not done: sleep` 等终态,
-            # serve() 读循环被堵死 → session/cancel 通知永远读不到 → 取消只能靠主控强杀。
-            # 现在整个 turn(泵+回 result)放后台线程,读循环保持响应。
-            def run_turn():
-                self._pump(sid)
-                if st.get("error"):
-                    self._update(sid, f"[adapter] {st['error']}")
-                self._result(mid, {"stopReason": st.get("stop", "end_turn")})
-
-            threading.Thread(target=run_turn, daemon=True).start()
+            st["run_id"] = run_id
+            flog(f"session/prompt {sid} create_run OK run={run_id} text={text[:50]!r}")
+            # 同步接流(零竞态):边收边发 update,终态即返回。
+            # cancel 走 DSH 侧强制断流兜底(harnessd 模型:一任务一管道)
+            self.gw.stream_run(run_id, lambda ev: self._on_run_event(sid, ev), st["stop_flag"])
+            if not st.get("done"):
+                # 流关闭但没见终态事件(极短任务竞态):兜底按完成处理
+                st["done"], st["stop"] = True, "end_turn"
+                flog("stream 关闭未见终态,兜底 end_turn")
+            if st.get("result_text") and not st.get("result_sent"):
+                st["result_sent"] = True
+                self._update(sid, st["result_text"])
+            if st.get("error"):
+                self._update(sid, f"[adapter] {st['error']}")
+            flog(f"prompt 返回 stopReason={st.get('stop')} error={st.get('error')}")
+            self._result(mid, {"stopReason": st.get("stop", "end_turn")})
         elif method == "session/cancel":
             sid = params.get("sessionId")
             st = self.sessions.get(sid)
             if st:
                 if st.get("run_id"):
-                    try:
-                        self.gw.cancel_run(st["run_id"])
-                    except Exception as e:
-                        log(f"cancel_run failed: {e}")
+                    self.gw.cancel_run(st["run_id"])
+                st["stop_flag"].set()
                 st["done"], st["stop"] = True, "cancelled"
-            # notification,无 id 不回
+            # notification 无 id 不回
+        elif method == "session/set_model":
+            sid = params.get("sessionId")
+            st = self.sessions.get(sid)
+            if not st:
+                self._error(mid, -32001, f"unknown session: {sid}")
+                return
+            # v5 的 prompt 链路:create_run 请求体(payload)只有 text/cwd,gateway runs API
+            # 没有按会话选模型的入参,模型无处可放。诚实拒绝(-32602),modelId 仅记在
+            # session 状态供观测——不静默吞,让主控侧明确知道切换未生效。
+            st["model"] = params.get("modelId")
+            flog(f"session/set_model {sid} model={st['model']!r} → gateway runs API 不支持,诚实 -32602")
+            self._error(mid, -32602,
+                        "gateway runs API 不支持按会话选模型(create_run 无 model 字段);"
+                        f"modelId={st['model']!r} 已记录但未生效")
         elif mid is not None:
             self._error(mid, -32601, f"method not found: {method}")
 
     def serve(self):
-        log(f"就绪,gateway={self.gw.base} auth={'有' if self.gw.auth else '无'}")
-        for line in sys.stdin:
+        flog("stdio ACP 就绪(REST runs 隔离模式),开始服务")
+        threading.Thread(target=self._idle_watchdog, daemon=True).start()
+        # 注意:不能用 `for line in sys.stdin`——其 read-ahead 缓冲会吞后续行直到 EOF,
+        # 阻塞式 prompt 期间 cancel/新请求永远读不到(Linux 实测踩坑)。readline 迭代无此问题。
+        for line in iter(sys.stdin.readline, ""):
             line = line.strip()
             if not line:
                 continue
             try:
                 msg = json.loads(line)
             except Exception:
+                flog(f"stdin 非法 JSON: {line[:80]!r}")
                 continue
+            flog(f"stdin -> {msg.get('method')} id={msg.get('id')}")
             try:
-                self.handle(msg)
+                if msg.get("method") in ("session/prompt", "session/cancel"):
+                    # prompt 是阻塞式(同步接 SSE 流),内联处理会让主循环停读 stdin——
+                    # cancel 永远轮不到,gateway run 泄漏。prompt/cancel 走旁路线程,
+                    # 主循环保持可读;输出有 _io_lock 串行化,JSON-RPC 靠 id 配对。
+                    threading.Thread(target=self._handle_safe, args=(msg,), daemon=True).start()
+                else:
+                    self._handle_safe(msg)
             except Exception as e:
-                if msg.get("id") is not None:
-                    self._error(msg["id"], -32603, f"internal error: {e}")
+                import traceback
+                flog(f"serve 异常: {type(e).__name__}: {e}\n{traceback.format_exc()[:800]}")
+        flog("!!! stdin EOF: 上游(harnessd)关闭了管道 -> 适配器退出。这是'远程进程消失'的直接原因")
+
+    def _handle_safe(self, msg):
+        try:
+            self.handle(msg)
+        except Exception as e:
+            import traceback
+            flog(f"handle 异常: {type(e).__name__}: {e}\n{traceback.format_exc()[:800]}")
+            if msg.get("id") is not None:
+                self._error(msg["id"], -32603, f"internal: {e}")
 
 
 def main():
-    AcpServer().serve()
+    flog(f"=== 适配器启动 v{VERSION} argv={sys.argv[1:]} ===")
+    cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gateway-config.json")
+    cfg_url = None
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg_url = json.load(f).get("url")
+        except Exception:
+            pass
+
+    # v5.2 解耦:端口发现/密码获取放后台,不阻塞协议层。
+    # initialize 必须零 gateway 依赖秒回(gateway 噎住时协议层仍可用,失败干净落在 prompt 层)
+    state = {"base": None, "password": None, "ready": threading.Event(), "error": None}
+
+    def _bg_discover():
+        try:
+            t0 = time.time()
+            base, pw = discover_gateway(cfg_url)
+            state["base"] = base
+            state["password"] = pw if pw else (discover_password(base) if base else None)
+            flog(f"后台发现完成({time.time()-t0:.1f}s): base={base} password={'有' if state['password'] else '无'}")
+        except Exception as e:
+            state["error"] = str(e)
+            flog(f"后台发现异常: {type(e).__name__}: {e}")
+        finally:
+            state["ready"].set()
+
+    threading.Thread(target=_bg_discover, daemon=True).start()
+    AcpServer(RunsClient(None, None), state).serve()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+        flog(f"顶层异常退出: {traceback.format_exc()[:1200]}")
+        raise
