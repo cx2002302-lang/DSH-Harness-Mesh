@@ -323,7 +323,11 @@ class RunsClient:
 
 def load_models():
     """模型清单合并:.workbuddy/models.json(对象数组,每项取 id,空则 name;文件不在/解析失败静默)
-    为主,env GATEWAY_MODELS(逗号分隔)若给了则排在前面覆盖补充。合并去重保序。"""
+    为主,env GATEWAY_MODELS(逗号分隔)若给了则排在前面覆盖补充;
+    第三源 .workbuddy/cache/acc-product-config-v3.json 的 .models(官方目录,取显示名 name),
+    过滤 disabled / 非聊天 tags(image/video)/ custom-local: / 编辑器补全模型。按名字去重保序。
+    来源标记:env/models.json = custom(自定义);acc-product-config 目录缓存 = builtin(自带);
+    同名去重时 custom 优先(本来就排前面)。返回 [(干净名字, "custom"|"builtin"), ...]"""
     file_models = []
     base = os.environ.get("USERPROFILE") or os.path.expanduser("~")
     try:
@@ -336,12 +340,39 @@ def load_models():
                     file_models.append(mid)
     except Exception:
         pass
+    # 第三源:官方目录缓存 acc-product-config-v3.json .models,只留聊天模型,取显示名 name
+    dir_models = []
+    try:
+        with open(os.path.join(base, ".workbuddy", "cache", "acc-product-config-v3.json"), "r", encoding="utf-8") as f:
+            models = (json.load(f) or {}).get("models")
+        if isinstance(models, list):
+            bad_tags = {"text-to-image", "image-to-image", "text-to-video"}
+            for item in models:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("disabled"):
+                    continue
+                mid = str(item.get("id") or "")
+                if mid.startswith("custom-local:"):  # 自定义型号,models.json 已覆盖
+                    continue
+                if "completion" in mid or mid.startswith("codewise"):  # 编辑器内部补全模型
+                    continue
+                tags = item.get("tags") or []
+                if any(t in bad_tags for t in tags):
+                    continue
+                name = str(item.get("name") or "").strip()
+                if name and name not in dir_models:
+                    dir_models.append(name)
+    except Exception:
+        pass
     env_models = [m.strip() for m in os.environ.get("GATEWAY_MODELS", "").split(",") if m.strip()]
     seen, out = set(), []
-    for m in env_models + file_models:  # env 优先在前,文件清单补充去重
+    # env 优先,其次文件清单,最后官方目录补充去重;同名时 custom(前两源)天然优先
+    for m, src in [(m, "custom") for m in env_models + file_models] + \
+                  [(m, "builtin") for m in dir_models]:
         if m not in seen:
             seen.add(m)
-            out.append(m)
+            out.append((m, src))
     return out
 
 
@@ -469,8 +500,10 @@ class AcpServer:
             if models:
                 result["configOptions"] = [{
                     "id": "model", "name": "Model", "category": "model", "type": "select",
-                    "currentValue": os.environ.get("GATEWAY_MODEL") or models[0],
-                    "options": [{"value": m, "name": m} for m in models],
+                    "currentValue": os.environ.get("GATEWAY_MODEL") or models[0][0],
+                    # value=干净名字(下游当 modelId);自定义项显示名加 " · 自定义" 后缀,自带不加
+                    "options": [{"value": m, "name": f"{m} · 自定义" if src == "custom" else m}
+                                for m, src in models],
                 }]
                 flog(f"session/new {sid} 上报模型清单 {models} current={result['configOptions'][0]['currentValue']}")
             self._result(mid, result)
