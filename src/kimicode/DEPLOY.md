@@ -18,11 +18,11 @@ WinPC kimicode —— 本包主体:plugs 条目 + 凭据(login)
 `plugs.json` 的 kimicode-exec:
 ```json
 {"plugId":"kimicode-exec","harness":"kimicode","kind":"acp",
- "command":"C:\\Users\\Administrator\\.kimi-code\\bin\\kimi.exe","args":["acp"],
+ "command":"<USERPROFILE>\\.kimi-code\\bin\\kimi.exe","args":["acp"],
  "no_auto_port":true,"enabled":true}
 ```
 - **`no_auto_port:true` 必须**:harnessd_win 默认给所有插头追加 `--port <端口>`(为 workbuddy 躲占用加的);kimi 原生 CLI 不认 → arg 解析失败 → 613ms 自杀(2026-10-17 实踩)
-- 同步双副本:共享 wb-green(权威源,git commit)+ **C:\wb-mesh\plugs.json(harnessd 实际加载的!)**
+- 同步双副本:共享 wb-green(权威源,git commit)+ **<MESH_ROOT>\plugs.json(harnessd 实际加载的!)**
 - 重启 harnessd_win(plug.reload 有"载新不换旧"bug,重启最稳;keepalive ~70s 自拉)
 
 ### 1.2 节点登记(208 上,★cwd 必填)
@@ -30,15 +30,15 @@ WinPC kimicode —— 本包主体:plugs 条目 + 凭据(login)
 ```bash
 curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/harness-mesh/nodes \
   -H 'Content-Type: application/json' -d '{"node":{
-    "name":"CHINAMI-kimicode","type":"acp-plug",
+    "name":"node-win-01-kimicode","type":"acp-plug",
     "address":"<tailnet-IP>:7080","plugId":"kimicode-exec",
     "socks":"127.0.0.1:11090",
-    "cwd":"C:\\wb-mesh",
+    "cwd":"<MESH_ROOT>",
     "description":"WinPC kimicode(原生 acp,no_auto_port)"}}'
 ```
 - **cwd 必须合法字符串**:kimi 的 ACP 拒 `cwd:null`(`-32602 Invalid params`,2026-10-17 实踩);zcode 适配器宽容 null,别被它的经验误导
 
-### 1.3 凭据(老徐一次性)
+### 1.3 凭据(管理员一次性)
 
 WinPC 终端跑 `kimi login`(device-code flow,浏览器授权)→ 落 `~/.kimi-code/credentials`,长效。**CLI 独立持证,不依赖桌面登录态**——不会踩 zcode 的签名坑。
 
@@ -46,11 +46,11 @@ WinPC 终端跑 `kimi login`(device-code flow,浏览器授权)→ 落 `~/.kimi-c
 
 ```bash
 # ① PONG(期望 succeeded+PONG,~5s)
-harness_dispatch {"harness":"CHINAMI-kimicode","prompt":"只回复 PONG","cwd":null}
+harness_dispatch {"harness":"node-win-01-kimicode","prompt":"只回复 PONG","cwd":null}
 # ② 带产物(期望 succeeded+changes 捕获+共享可验的产物)
-harness_dispatch {"harness":"CHINAMI-kimicode","prompt":"在 D:\\AgentHome\\DshData\\wb-green\\kimi-e2e-ok.txt 创建文件,内容:kimi 实机测试通过 <当前时间>;并汇报模型名","cwd":null}
+harness_dispatch {"harness":"node-win-01-kimicode","prompt":"在 <INSTALL_DIR>\\kimi-e2e-ok.txt 创建文件,内容:kimi 实机测试通过 <当前时间>;并汇报模型名","cwd":null}
 # ③ 开团(期望 all_done)
-harness_team {"task":"一句话说明角色","members":[{"harness":"CHINAMI-kimicode","role":"执行员"}]}
+harness_team {"task":"一句话说明角色","members":[{"harness":"node-win-01-kimicode","role":"执行员"}]}
 ```
 **2026-10-18 01:07 实机基线**:① 4.9s ② 34s(Write 偶发内部错→shell 自救,已验证产物) ③ all_done。
 
@@ -59,14 +59,14 @@ harness_team {"task":"一句话说明角色","members":[{"harness":"CHINAMI-kimi
 | 症状 | 第一查 |
 |---|---|
 | 进程 613ms 自杀(initialize 前死) | **插头漏了 no_auto_port:true**——harnessd 追加了 --port,kimi 不认 |
-| `-32602 Invalid params`(cwd 字段) | 节点表漏配 cwd——kimi 拒 null,填 C:\wb-mesh |
-| `plug disabled` | 只改了共享没同步 C:\wb-mesh,或没重启 harnessd |
+| `-32602 Invalid params`(cwd 字段) | 节点表漏配 cwd——kimi 拒 null,填 <MESH_ROOT> |
+| `plug disabled` | 只改了共享没同步 <MESH_ROOT>,或没重启 harnessd |
 | Write 工具内部错 | kimi 侧偶发,它会 shell 自救,不阻塞;持续出现反馈 kimicode 侧 |
 | 任务 20-40s | 正常(kimi 思考+工具调用比 zcode 略慢) |
 
 ## 3. 维护纪律
 
-- plugs 改动走 wb-green git + **同步 C:\wb-mesh 双副本** + 重启 harnessd
+- plugs 改动走 wb-green git + **同步 <MESH_ROOT> 双副本** + 重启 harnessd
 - 绿模单例(别起第二份)
 - kimicode 频道(AI协调频道-kimicode)转维护模式,安静即正常
 

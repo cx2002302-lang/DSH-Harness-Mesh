@@ -64,7 +64,7 @@ harness_cancel    取消在跑任务
 ```
 
 Bot 用法示例(直接对它说):
-> “用 harness_list 看有哪些节点,派个任务到 CHINAMI-zcode 让它只回复 PONG,轮询到终态拿汇报”
+> “用 harness_list 看有哪些节点,派个任务到 node-win-01-zcode 让它只回复 PONG,轮询到终态拿汇报”
 
 节点配置单一来源(主实例 `nodes.json`);DSB 实例软链到同一份,零漂移:
 ```bash

@@ -9,10 +9,10 @@ IP=$(ann-ctrl node list --data-dir=$DD 2>/dev/null | awk '$2 ~ /chinami/ && $5==
 echo "节点 IP: $IP"
 # 节点地址同步(IP 可能变)
 curl -s -m 5 -b $JAR -X POST "$BASE/api/harness-mesh/nodes" -H 'Content-Type: application/json' \
-  -d "{\"name\":\"CHINAMI-EKC4J2J-workbuddy\",\"type\":\"acp-plug\",\"address\":\"$IP:7080\",\"plugId\":\"CHINAMI-EKC4J2J-workbuddy\",\"socks\":\"127.0.0.1:11090\",\"description\":\"Windows PC(CHINAMI-EKC4J2J)workbuddy,ANN 绿模\"}" > /dev/null
+  -d "{\"name\":\"node-win-01-workbuddy\",\"type\":\"acp-plug\",\"address\":\"$IP:7080\",\"plugId\":\"node-win-01-workbuddy\",\"socks\":\"127.0.0.1:11090\",\"description\":\"Windows PC(node-win-01)workbuddy,ANN 绿模\"}" > /dev/null
 echo "--- 派探针任务 ---"
 R=$(curl -s -m 10 -b $JAR -X POST "$BASE/api/harness-mesh/dispatch" -H 'Content-Type: application/json' -d '{
-  "harness":"CHINAMI-EKC4J2J-workbuddy",
+  "harness":"node-win-01-workbuddy",
   "prompt":"探针任务:请汇报 1) 你当前的工作目录(cwd)2) 当前时间 3) 你所在机器的磁盘列表(盘符+总容量)4) 你使用的模型名。每项一行。",
   "cwd":null}')
 TID=$(echo "$R" | python3 -c "import sys,json;print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null)

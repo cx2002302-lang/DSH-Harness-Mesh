@@ -1,0 +1,139 @@
+[
+  {
+    "_comment": " plugs.example.json —— 6 插头模板。发布版全部用占位符,落地前逐个替换: <INSTALL_DIR>=适配器/脚本统一落地目录(绿模共享目录,如 D:/xxx/wb-green 或 ~/wb-green); <PYTHON_EXE>=python.exe 全路径(建议 ≥3.10,适配器纯标准库); <NODE_EXE>=node.exe 全路径(仅 workbuddy-ui 需要)。 所有路径一律正斜杠或双反斜杠转义。env 段保留键名,值按部署环境填写;留空的键表示用适配器/CLI 缺省。填好后复制为 harnessd 实际加载的 plugs.json(注意与共享份保持同步)。 ",
+    "plugs": "见下;本文件仅是模板,顶层 _comment 键落地时可删"
+  },
+  {
+    "plugId": "workbuddy-exec",
+    "harness": "workbuddy",
+    "kind": "acp",
+    "command": "<PYTHON_EXE>",
+    "args": [
+      "<INSTALL_DIR>/wb-gateway-adapter.py"
+    ],
+    "capabilities": [
+      "exec"
+    ],
+    "no_auto_port": false,
+    "aliases": [
+      "wb-exec"
+    ],
+    "env": {
+      "ADAPTER_LOG": "",
+      "ADAPTER_MAX_TURN_WAIT": "1800",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "enabled": true,
+    "note": "workbuddy 下行经 wb-gateway-adapter(REST runs 隔离 run);ADAPTER_LOG 留空=日志写脚本同目录 v5-adapter.log,可指到任意路径"
+  },
+  {
+    "plugId": "workbuddy-ui",
+    "harness": "workbuddy",
+    "kind": "line",
+    "command": "<NODE_EXE>",
+    "args": [
+      "<INSTALL_DIR>/wb-ui.js"
+    ],
+    "capabilities": [
+      "ui"
+    ],
+    "no_auto_port": false,
+    "aliases": [
+      "wb-ui"
+    ],
+    "env": {
+      "WB_CDP_PORT": "9222",
+      "WB_SEND_SCRIPT": ""
+    },
+    "enabled": true,
+    "note": "GUI 操控(CDP,10 工具);WB_SEND_SCRIPT 留空=按同目录规则自动发现 send_via_api.py"
+  },
+  {
+    "plugId": "zcode-exec",
+    "harness": "zcode",
+    "kind": "acp",
+    "command": "<PYTHON_EXE>",
+    "args": [
+      "<INSTALL_DIR>/zcode-adapter.py"
+    ],
+    "capabilities": [
+      "exec"
+    ],
+    "no_auto_port": false,
+    "aliases": [
+      "zcode"
+    ],
+    "env": {
+      "ZCODE_CJS": "",
+      "ADAPTER_LOG": "1",
+      "ADAPTER_MAX_TURN_WAIT": "1800",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "enabled": true,
+    "note": "zcode CLI -p 引擎;ZCODE_CJS 留空=适配器按安装位置自动发现 zcode.cjs"
+  },
+  {
+    "plugId": "kimicode-exec",
+    "harness": "kimicode",
+    "kind": "acp",
+    "command": "<INSTALL_DIR>/kimi.exe",
+    "args": [
+      "acp"
+    ],
+    "capabilities": [
+      "exec"
+    ],
+    "no_auto_port": true,
+    "aliases": [
+      "kimicode"
+    ],
+    "env": {},
+    "enabled": true,
+    "note": "原生 kimi.exe acp(ACP over stdio),免适配器;no_auto_port=true 保持纯 stdio 直起"
+  },
+  {
+    "plugId": "opencode-exec",
+    "harness": "opencode",
+    "kind": "acp",
+    "command": "<INSTALL_DIR>/opencode",
+    "args": [
+      "acp"
+    ],
+    "capabilities": [
+      "exec"
+    ],
+    "no_auto_port": true,
+    "aliases": [
+      "opencode"
+    ],
+    "env": {},
+    "enabled": true,
+    "note": "原生 opencode acp(ACP over stdio),免适配器;no_auto_port=true;需先 opencode auth login;默认模型可在 opencode.json 钉住"
+  },
+  {
+    "plugId": "qoder-exec",
+    "harness": "qoder",
+    "kind": "acp",
+    "command": "<PYTHON_EXE>",
+    "args": [
+      "<INSTALL_DIR>/qoder-adapter.py"
+    ],
+    "capabilities": [
+      "exec"
+    ],
+    "no_auto_port": false,
+    "aliases": [
+      "qoder"
+    ],
+    "env": {
+      "QODER_ADAPTER_CLI": "",
+      "QODER_ADAPTER_PERM_MODE": "bypass_permissions",
+      "QODER_ADAPTER_STREAM": "0",
+      "QODER_ADAPTER_LOG_DIR": "",
+      "ADAPTER_MAX_TURN_WAIT": "1800",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "enabled": true,
+    "note": "qoderclicn CN CLI 经 qoder-adapter 接入;QODER_ADAPTER_CLI 必填(qoderclicn.exe 全路径);QODER_ADAPTER_LOG_DIR 留空=<HM_BASE_DIR>/logs"
+  }
+]

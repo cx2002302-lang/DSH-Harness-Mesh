@@ -1,14 +1,53 @@
 #!/usr/bin/env node
 // wb-ui.js — WorkBuddy UI 操控口（CDP，零依赖）
 // 协议：stdin 每行一个 JSON {cmd, ...} → stdout 每行一个 JSON {ok, ...}
-// 命令：status / model / sessions / screenshot / new-session / switch-session / delete-session / send
+// 命令：status / model / sessions / new-session / switch-session / delete-session / rename / send / screenshot
 // 前置：WorkBuddy 以 --remote-debugging-port=9222 启动
+//
+// 可覆盖的环境变量（别把机器和精确版本路径钉死在源码里）：
+//   WB_CDP_PORT CDP 端口  WB_PY python 解释器  WB_SEND_SCRIPT send_via_api.py 位置
+//   WB_MESH_DIR 外部脚本的工作目录  WB_SHOT_OUT 截图默认落盘路径
 
 const http = require('http');
 const fs = require('fs');
+const path = require('path');
 const readline = require('readline');
 
 const CDP_PORT = process.env.WB_CDP_PORT || 9222;
+
+// 版本号按数字比：字典序会把 3.13.12 排在 3.9.1 前面，挑中更旧的那份
+function cmpVersion(a, b) {
+  const x = String(a).split(/[^0-9]+/).filter(Boolean).map(Number);
+  const y = String(b).split(/[^0-9]+/).filter(Boolean).map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+function findPython() {
+  if (process.env.WB_PY) return process.env.WB_PY;
+  const home = process.env.USERPROFILE || process.env.HOME || '';
+  const root = path.join(home, '.workbuddy', 'binaries', 'python', 'versions');
+  try {
+    const vs = fs.readdirSync(root)
+      .filter(v => fs.existsSync(path.join(root, v, 'python.exe')))
+      .sort(cmpVersion);
+    if (vs.length) return path.join(root, vs[vs.length - 1], 'python.exe');
+  } catch (e) { /* 没装 .workbuddy 就跑 PATH 里的 python */ }
+  return 'python';
+}
+
+// send_via_api.py 和 wb-ui.js 同目录落地；运行时副本目录也按同目录规则查找(WB_SEND_SCRIPT 可覆盖)
+function findSendScript() {
+  const cands = [path.join(__dirname, 'send_via_api.py'),
+                 path.join(__dirname, '..', 'send_via_api.py')];
+  return cands.find(p => fs.existsSync(p)) || cands[0];
+}
+
+const SEND_SCRIPT = process.env.WB_SEND_SCRIPT || findSendScript();
+const MESH_DIR = process.env.WB_MESH_DIR || path.dirname(SEND_SCRIPT);
 
 function getTargets() {
   return new Promise((resolve, reject) => {
@@ -48,10 +87,10 @@ const EV = (id, expression) => ({ id, method: 'Runtime.evaluate',
   params: { expression, returnByValue: true, awaitPromise: true } });
 
 // —— 真实鼠标点击（element.click() 对 React 无效，必须用 CDP Input 事件）——
-async function realClick(ws, rect) {
+async function realClick(wsUrl, rect) {
   const x = Math.round(rect.x);
   const y = Math.round(rect.y);
-  await cdpBatch(ws, [
+  await cdpBatch(wsUrl, [
     { id: 101, method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x, y } },
     { id: 102, method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x, y, button: 'left', clickCount: 1 } },
     { id: 103, method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 } },
@@ -60,8 +99,8 @@ async function realClick(ws, rect) {
 }
 
 // expr 必须返回 JSON 字符串 {x,y} 或 {err}
-async function rectOf(ws, expr) {
-  const res = await cdpBatch(ws, [EV(1, expr)]);
+async function rectOf(wsUrl, expr) {
+  const res = await cdpBatch(wsUrl, [EV(1, expr)]);
   const raw = valueOf(res, 1);
   try { return JSON.parse(raw); } catch (e) { return { err: 'bad rect: ' + String(raw) }; }
 }
@@ -180,8 +219,8 @@ const handlers = {
   async 'new-session'(args) {
     // 已标定：Ctrl+N 是 WorkBuddy 新建任务/会话的正确入口（真实鼠标点按钮会撞到卡片菜单）
     const page = await getPage();
-    const ws = page.webSocketDebuggerUrl;
-    await cdpBatch(ws, [
+    const wsUrl = page.webSocketDebuggerUrl;
+    await cdpBatch(wsUrl, [
       { id: 201, method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', key: 'n', code: 'KeyN', windowsVirtualKeyCode: 78, modifiers: 2 } },
       { id: 202, method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', key: 'n', code: 'KeyN', windowsVirtualKeyCode: 78, modifiers: 2 } },
     ]);
@@ -203,13 +242,13 @@ const handlers = {
   async 'switch-session'(args) {
     if (!args || !args.name) throw new Error('need name');
     const page = await getPage();
-    const ws = page.webSocketDebuggerUrl;
-    const rect = await rectOf(ws, cardRectExpr(args.name));
+    const wsUrl = page.webSocketDebuggerUrl;
+    const rect = await rectOf(wsUrl, cardRectExpr(args.name));
     if (rect.err) return { action: 'NOT_FOUND', detail: rect.err };
-    await realClick(ws, rect);
+    await realClick(wsUrl, rect);
     await new Promise(r => setTimeout(r, 1800));
     // 验证:哪个卡片是 selected
-    const chk = await rectOf(ws, `(() => {
+    const chk = await rectOf(wsUrl, `(() => {
       const sel = Array.from(document.querySelectorAll('.cb-agent-card')).find(c => /_selected_/.test(c.className || ''));
       return JSON.stringify({ selected: sel ? (sel.innerText||'').trim().split('\\n')[0] : null });
     })()`);
@@ -221,18 +260,18 @@ const handlers = {
     // 安全策略：默认只"打开菜单并列出可选项"，真删需 args.confirm===true
     if (!args || !args.name) throw new Error('need name');
     const page = await getPage();
-    const ws = page.webSocketDebuggerUrl;
-    const rect = await rectOf(ws, cardRectExpr(args.name));
+    const wsUrl = page.webSocketDebuggerUrl;
+    const rect = await rectOf(wsUrl, cardRectExpr(args.name));
     if (rect.err) return { action: 'NOT_FOUND', detail: rect.err };
     // 右键打开菜单
-    await cdpBatch(ws, [
+    await cdpBatch(wsUrl, [
       { id: 301, method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', x: Math.round(rect.x), y: Math.round(rect.y) } },
       { id: 302, method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', x: Math.round(rect.x), y: Math.round(rect.y), button: 'right', clickCount: 1 } },
       { id: 303, method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', x: Math.round(rect.x), y: Math.round(rect.y), button: 'right', clickCount: 1 } },
     ]);
     await new Promise(r => setTimeout(r, 900));
     // 列出菜单项
-    const menu = await rectOf(ws, `(() => {
+    const menu = await rectOf(wsUrl, `(() => {
       const items = Array.from(document.querySelectorAll('*')).filter(x => {
         if (x.children.length) return false;
         const t = (x.innerText||'').trim();
@@ -245,24 +284,24 @@ const handlers = {
     const items = (menu.items || []);
     let deleted = null;
     if (args.confirm === true) {
-      const delRect = await rectOf(ws, `(() => {
+      const delRect = await rectOf(wsUrl, `(() => {
         const el = Array.from(document.querySelectorAll('*')).find(x => !x.children.length && /删除任务/.test((x.innerText||'').trim()));
         if (!el) return JSON.stringify({err:'no delete item'});
         const r = el.getBoundingClientRect();
         return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2});
       })()`);
       if (!delRect.err) {
-        await realClick(ws, delRect);
+        await realClick(wsUrl, delRect);
         await new Promise(r => setTimeout(r, 900));
         // 二次确认弹窗里的"删除/确定"
-        const confirmRect = await rectOf(ws, `(() => {
+        const confirmRect = await rectOf(wsUrl, `(() => {
           const el = Array.from(document.querySelectorAll('button')).find(b => /^(删除|确定|确认)$/.test((b.innerText||'').trim()));
           if (!el) return JSON.stringify({err:'no confirm btn'});
           const r = el.getBoundingClientRect();
           return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2});
         })()`);
         if (!confirmRect.err) {
-          await realClick(ws, confirmRect);
+          await realClick(wsUrl, confirmRect);
           await new Promise(r => setTimeout(r, 1200));
           deleted = true;
         } else {
@@ -273,7 +312,7 @@ const handlers = {
       }
     } else {
       // 不开删：按 Esc 关菜单
-      await cdpBatch(ws, [
+      await cdpBatch(wsUrl, [
         { id: 310, method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 } },
         { id: 311, method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 } },
       ]);
@@ -282,14 +321,12 @@ const handlers = {
   },
 
   async send(args) {
-    // 无损平替(老徐要求): 走 Gateway HTTP API 派任务, 零 CDP、零界面操作
-    // 实现在 send_via_api.py(复用适配器的密码发现 + runs API + SSE 等终态)
+    // 无损平替：走 Gateway HTTP API 派任务，零 CDP、零界面操作
+    // 实现在 send_via_api.py（复用适配器的密码发现 + runs API + SSE 等终态）
     if (!args || !args.text) throw new Error('need text');
     const { execFileSync } = require('child_process');
-    const PY = 'C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/python.exe';
-    const SCRIPT = 'C:/wb-mesh/send_via_api.py';
-    const out = execFileSync(PY, [SCRIPT, String(args.text)], {
-      encoding: 'utf8', timeout: 200000, cwd: 'C:/wb-mesh', windowsHide: true,
+    const out = execFileSync(findPython(), [SEND_SCRIPT, String(args.text)], {
+      encoding: 'utf8', timeout: 200000, cwd: MESH_DIR, windowsHide: true,
     });
     const lines = out.trim().split(String.fromCharCode(10));
     const line = lines[lines.length - 1];
@@ -300,10 +337,10 @@ const handlers = {
     // 右键卡片 -> 菜单重命名 -> 填新名 -> 回车（CDP 写操作，无 API 替代）
     if (!args || !args.name || !args.newName) throw new Error("need name + newName");
     const page = await getPage();
-    const ws = page.webSocketDebuggerUrl;
-    const rect = await rectOf(ws, cardRectExpr(args.name));
+    const wsUrl = page.webSocketDebuggerUrl;
+    const rect = await rectOf(wsUrl, cardRectExpr(args.name));
     if (rect.err) return { action: "NOT_FOUND", detail: rect.err };
-    await cdpBatch(ws, [
+    await cdpBatch(wsUrl, [
       { id: 401, method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: Math.round(rect.x), y: Math.round(rect.y) } },
       { id: 402, method: "Input.dispatchMouseEvent", params: { type: "mousePressed", x: Math.round(rect.x), y: Math.round(rect.y), button: "right", clickCount: 1 } },
       { id: 403, method: "Input.dispatchMouseEvent", params: { type: "mouseReleased", x: Math.round(rect.x), y: Math.round(rect.y), button: "right", clickCount: 1 } },
@@ -321,9 +358,9 @@ const handlers = {
       + "var r = els[0].getBoundingClientRect();"
       + "return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2});"
       + "})()";
-    const rn = await rectOf(ws, rnExpr);
+    const rn = await rectOf(wsUrl, rnExpr);
     if (rn.err) return { action: "MENU_NO_RENAME", detail: rn.err };
-    await realClick(ws, rn);
+    await realClick(wsUrl, rn);
     await new Promise(r => setTimeout(r, 1000));
     const nn = JSON.stringify(String(args.newName));
         const fillExpr = "(() => {"
@@ -340,9 +377,9 @@ const handlers = {
       + "} else { el.textContent = v; el.dispatchEvent(new InputEvent(\"input\", { bubbles: true })); }"
       + "return \"FILLED:\" + el.tagName;"
       + "})()";
-    const filled = await cdpBatch(ws, [EV(1, fillExpr)]);
+    const filled = await cdpBatch(wsUrl, [EV(1, fillExpr)]);
     await new Promise(r => setTimeout(r, 500));
-    await cdpBatch(ws, [
+    await cdpBatch(wsUrl, [
       { id: 410, method: "Input.dispatchKeyEvent", params: { type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 } },
       { id: 411, method: "Input.dispatchKeyEvent", params: { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 } },
     ]);
@@ -356,7 +393,7 @@ const handlers = {
     const res = await cdpBatch(page.webSocketDebuggerUrl, [
       { id: 1, method: 'Page.captureScreenshot', params: { format: 'png' } },
     ]);
-    const out = (args && args.out) || 'C:\\wb-mesh\\wb-ui-shot.png';
+    const out = (args && args.out) || process.env.WB_SHOT_OUT || path.join(MESH_DIR, 'wb-ui-shot.png');
     const data = res[1] && res[1].result && res[1].result.data;
     if (!data) throw new Error('no screenshot data');
     fs.writeFileSync(out, Buffer.from(data, 'base64'));
@@ -380,8 +417,9 @@ rl.on('line', async (line) => {
     let req;
     try { req = JSON.parse(line); } catch (e) { respond({ ok: false, error: 'bad json' }); return; }
     const cmd = req.cmd;
-    const h = handlers[cmd];
-    if (!h) { respond({ ok: false, error: 'unknown cmd: ' + cmd }); return; }
+    // 只认自有键：handlers['constructor'] 会顺原型链摸到 Object，于是回一个 ok:true 的空应答
+    const h = Object.prototype.hasOwnProperty.call(handlers, cmd) ? handlers[cmd] : null;
+    if (!h) { respond({ ok: false, error: 'unknown cmd: ' + String(cmd) }); return; }
     try {
       const r = await h(req);
       respond({ ok: true, cmd, ...r });

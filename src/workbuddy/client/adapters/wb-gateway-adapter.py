@@ -20,6 +20,8 @@ wb-gateway-adapter.py — harness-mesh 适配器「A 壳 B 心」(v5.0 REST runs
       端口: 自动发现(GATEWAY_URL > gateway-config.json > web-ui-port.json > 扫进程验标题)
 
   零依赖: 仅 python3 标准库。harnessd spawn 即用,无守护无状态。
+
+  2026-10-20 v5 真身从生产回收(此前仓库里是 v0.1 骨架,Gateway API 形状以本文件为准)。
 """
 import json
 import os
@@ -36,7 +38,7 @@ VERSION = "5.2.1"
 CREATE_NO_WINDOW = 0x08000000  # pythonw 下 subprocess 默认会弹控制台窗口
 
 # 共享文件日志(DSH 侧也能读):生命周期全记录,定位"进程为什么死"
-FILE_LOG = os.environ.get("ADAPTER_LOG", r"D:\AgentHome\DshData\wb-green\v5-adapter.log")
+FILE_LOG = os.environ.get("ADAPTER_LOG") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "v5-adapter.log")  # 缺省=脚本同目录;ADAPTER_LOG 可指到任意路径
 
 
 def flog(msg):
@@ -317,6 +319,63 @@ class RunsClient:
             return None
 
 
+# ---------- 模型清单上报(mesh 的 listModels 走 session/new 响应的 configOptions,opencode 方言) ----------
+
+def load_models():
+    """模型清单合并:.workbuddy/models.json(对象数组,每项取 id,空则 name;文件不在/解析失败静默)
+    为主,env GATEWAY_MODELS(逗号分隔)若给了则排在前面覆盖补充;
+    第三源 .workbuddy/cache/acc-product-config-v3.json 的 .models(官方目录,取显示名 name),
+    过滤 disabled / 非聊天 tags(image/video)/ custom-local: / 编辑器补全模型。按名字去重保序。
+    来源标记:env/models.json = custom(自定义);acc-product-config 目录缓存 = builtin(自带);
+    同名去重时 custom 优先(本来就排前面)。返回 [(干净名字, "custom"|"builtin"), ...]"""
+    file_models = []
+    base = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+    try:
+        with open(os.path.join(base, ".workbuddy", "models.json"), "r", encoding="utf-8") as f:
+            arr = json.load(f)
+        if isinstance(arr, list):
+            for item in arr:
+                mid = str(item.get("id") or item.get("name") or "").strip() if isinstance(item, dict) else ""
+                if mid and mid not in file_models:
+                    file_models.append(mid)
+    except Exception:
+        pass
+    # 第三源:官方目录缓存 acc-product-config-v3.json .models,只留聊天模型,取显示名 name
+    dir_models = []
+    try:
+        with open(os.path.join(base, ".workbuddy", "cache", "acc-product-config-v3.json"), "r", encoding="utf-8") as f:
+            models = (json.load(f) or {}).get("models")
+        if isinstance(models, list):
+            bad_tags = {"text-to-image", "image-to-image", "text-to-video"}
+            for item in models:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("disabled"):
+                    continue
+                mid = str(item.get("id") or "")
+                if mid.startswith("custom-local:"):  # 自定义型号,models.json 已覆盖
+                    continue
+                if "completion" in mid or mid.startswith("codewise"):  # 编辑器内部补全模型
+                    continue
+                tags = item.get("tags") or []
+                if any(t in bad_tags for t in tags):
+                    continue
+                name = str(item.get("name") or "").strip()
+                if name and name not in dir_models:
+                    dir_models.append(name)
+    except Exception:
+        pass
+    env_models = [m.strip() for m in os.environ.get("GATEWAY_MODELS", "").split(",") if m.strip()]
+    seen, out = set(), []
+    # env 优先,其次文件清单,最后官方目录补充去重;同名时 custom(前两源)天然优先
+    for m, src in [(m, "custom") for m in env_models + file_models] + \
+                  [(m, "builtin") for m in dir_models]:
+        if m not in seen:
+            seen.add(m)
+            out.append((m, src))
+    return out
+
+
 # ---------- ACP stdio server ----------
 
 class AcpServer:
@@ -436,7 +495,18 @@ class AcpServer:
             self.sessions[sid] = {"run_id": None, "cwd": cwd, "stop_flag": threading.Event(),
                                   "done": False, "stop": "end_turn"}
             flog(f"session/new {sid} cwd={cwd}")
-            self._result(mid, {"sessionId": sid})
+            result = {"sessionId": sid}
+            models = load_models()  # 模型清单非空才上报 configOptions(opencode 方言 select)
+            if models:
+                result["configOptions"] = [{
+                    "id": "model", "name": "Model", "category": "model", "type": "select",
+                    "currentValue": os.environ.get("GATEWAY_MODEL") or models[0][0],
+                    # value=干净名字(下游当 modelId);自定义项显示名加 " · 自定义" 后缀,自带不加
+                    "options": [{"value": m, "name": f"{m} · 自定义" if src == "custom" else m}
+                                for m, src in models],
+                }]
+                flog(f"session/new {sid} 上报模型清单 {models} current={result['configOptions'][0]['currentValue']}")
+            self._result(mid, result)
         elif method == "session/prompt":
             sid = params.get("sessionId")
             st = self.sessions.get(sid)
@@ -477,13 +547,29 @@ class AcpServer:
                 st["stop_flag"].set()
                 st["done"], st["stop"] = True, "cancelled"
             # notification 无 id 不回
+        elif method == "session/set_model":
+            sid = params.get("sessionId")
+            st = self.sessions.get(sid)
+            if not st:
+                self._error(mid, -32001, f"unknown session: {sid}")
+                return
+            # v5 的 prompt 链路:create_run 请求体(payload)只有 text/cwd,gateway runs API
+            # 没有按会话选模型的入参,模型无处可放。诚实拒绝(-32602),modelId 仅记在
+            # session 状态供观测——不静默吞,让主控侧明确知道切换未生效。
+            st["model"] = params.get("modelId")
+            flog(f"session/set_model {sid} model={st['model']!r} → gateway runs API 不支持,诚实 -32602")
+            self._error(mid, -32602,
+                        "gateway runs API 不支持按会话选模型(create_run 无 model 字段);"
+                        f"modelId={st['model']!r} 已记录但未生效")
         elif mid is not None:
             self._error(mid, -32601, f"method not found: {method}")
 
     def serve(self):
         flog("stdio ACP 就绪(REST runs 隔离模式),开始服务")
         threading.Thread(target=self._idle_watchdog, daemon=True).start()
-        for line in sys.stdin:
+        # 注意:不能用 `for line in sys.stdin`——其 read-ahead 缓冲会吞后续行直到 EOF,
+        # 阻塞式 prompt 期间 cancel/新请求永远读不到(Linux 实测踩坑)。readline 迭代无此问题。
+        for line in iter(sys.stdin.readline, ""):
             line = line.strip()
             if not line:
                 continue
@@ -494,13 +580,26 @@ class AcpServer:
                 continue
             flog(f"stdin -> {msg.get('method')} id={msg.get('id')}")
             try:
-                self.handle(msg)
+                if msg.get("method") in ("session/prompt", "session/cancel"):
+                    # prompt 是阻塞式(同步接 SSE 流),内联处理会让主循环停读 stdin——
+                    # cancel 永远轮不到,gateway run 泄漏。prompt/cancel 走旁路线程,
+                    # 主循环保持可读;输出有 _io_lock 串行化,JSON-RPC 靠 id 配对。
+                    threading.Thread(target=self._handle_safe, args=(msg,), daemon=True).start()
+                else:
+                    self._handle_safe(msg)
             except Exception as e:
                 import traceback
-                flog(f"handle 异常: {type(e).__name__}: {e}\n{traceback.format_exc()[:800]}")
-                if msg.get("id") is not None:
-                    self._error(msg["id"], -32603, f"internal: {e}")
+                flog(f"serve 异常: {type(e).__name__}: {e}\n{traceback.format_exc()[:800]}")
         flog("!!! stdin EOF: 上游(harnessd)关闭了管道 -> 适配器退出。这是'远程进程消失'的直接原因")
+
+    def _handle_safe(self, msg):
+        try:
+            self.handle(msg)
+        except Exception as e:
+            import traceback
+            flog(f"handle 异常: {type(e).__name__}: {e}\n{traceback.format_exc()[:800]}")
+            if msg.get("id") is not None:
+                self._error(msg["id"], -32603, f"internal: {e}")
 
 
 def main():

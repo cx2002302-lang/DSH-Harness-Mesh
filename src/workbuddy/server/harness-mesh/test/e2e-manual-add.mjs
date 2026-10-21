@@ -1,6 +1,6 @@
 // 手填兜底验收:zcode 行展开 → 探测(0 模型)→ 手填添加 → 持久化
 import puppeteer from "puppeteer-core";
-const NODE = "CHINAMI-zcode";
+const NODE = "node-win-01-zcode";
 let failed = 0;
 const ok = (c, l) => { console.log(c ? `✅ ${l}` : `❌ ${l}`); if (!c) failed++; };
 const browser = await puppeteer.launch({ executablePath: "/usr/bin/google-chrome", headless: "new", args: ["--no-sandbox"] });

@@ -18,16 +18,16 @@ WinPC opencode —— 本包主体:plugs 条目 + opencode.json 钉模型
 `plugs.json` 的 opencode-exec:
 ```json
 {"plugId":"opencode-exec","harness":"opencode","kind":"acp",
- "command":"C:\\Users\\Administrator\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
+ "command":"<USERPROFILE>\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
  "args":["acp"],"no_auto_port":true,"enabled":true}
 ```
 - **no_auto_port:true**:harnessd 默认追加 --port;保守不掺(kimi 实踩过 613ms 自杀)
-- 同步双副本:共享 wb-green(权威源,git commit)+ **C:\wb-mesh\plugs.json(harnessd 实际加载的!)**
+- 同步双副本:共享 wb-green(权威源,git commit)+ **<MESH_ROOT>\plugs.json(harnessd 实际加载的!)**
 
 ### 1.2 ★钉模型(opencode 特有,最易漏)
 
 ```json
-// C:\wb-mesh\opencode.json(harnessd 的 spawn cwd 正好是它,项目级配置自动生效)
+// <MESH_ROOT>\opencode.json(harnessd 的 spawn cwd 正好是它,项目级配置自动生效)
 {"model": "opencode/deepseek-v4.1-flash-free"}
 ```
 - **为什么必须**:全局配置的默认模型可能是死的(astron → `HMAC signature cannot be verified: apikey not found`),而 `acp` 子命令**拒收 `-m`**(参数白名单)——命令行绕不过,只能项目级配置钉
@@ -42,9 +42,9 @@ WinPC opencode —— 本包主体:plugs 条目 + opencode.json 钉模型
 ```bash
 curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/harness-mesh/nodes \
   -H 'Content-Type: application/json' -d '{"node":{
-    "name":"CHINAMI-opencode","type":"acp-plug",
+    "name":"node-win-01-opencode","type":"acp-plug",
     "address":"<tailnet-IP>:7080","plugId":"opencode-exec",
-    "socks":"127.0.0.1:11090","cwd":"C:\\wb-mesh",
+    "socks":"127.0.0.1:11090","cwd":"<MESH_ROOT>",
     "description":"WinPC opencode(原生 acp,no_auto_port,项目级钉模型)"}}'
 ```
 - **cwd 必须合法**:opencode 的 ACP 拒 `cwd:null`(-32602)
@@ -52,9 +52,9 @@ curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/harness-mesh/nodes \
 ### 1.5 验收(三件套)
 
 ```bash
-harness_dispatch {"harness":"CHINAMI-opencode","prompt":"只回复 PONG","cwd":null}          # 期望 ~30s
-harness_dispatch {"harness":"CHINAMI-opencode","prompt":"一句话:模型名+现在几点","cwd":null}  # 期望真模型回答
-harness_dispatch {"harness":"CHINAMI-opencode","prompt":"在 D:\\AgentHome\\DshData\\wb-green\\oc-e2e-ok.txt 建文件(内容:oc 实机测试通过 <时间>);报模型名","cwd":null}  # 期望 ~56s+changes
+harness_dispatch {"harness":"node-win-01-opencode","prompt":"只回复 PONG","cwd":null}          # 期望 ~30s
+harness_dispatch {"harness":"node-win-01-opencode","prompt":"一句话:模型名+现在几点","cwd":null}  # 期望真模型回答
+harness_dispatch {"harness":"node-win-01-opencode","prompt":"在 <INSTALL_DIR>\\oc-e2e-ok.txt 建文件(内容:oc 实机测试通过 <时间>);报模型名","cwd":null}  # 期望 ~56s+changes
 ```
 **2026-10-18 01:44 实机基线**:① 31.5s ② deepseek-v4.1-flash-free ③ 56s(产物独立验证)。
 
@@ -62,15 +62,15 @@ harness_dispatch {"harness":"CHINAMI-opencode","prompt":"在 D:\\AgentHome\\DshD
 
 | 症状 | 第一查 |
 |---|---|
-| summary 是 `Unauthorized: HMAC signature...apikey not found` | **全局默认模型(astron)是死的**→按 §1.2 在 C:\wb-mesh\opencode.json 钉活模型 |
-| `-32602 Invalid params`(cwd) | 节点表漏配 cwd→填 C:\wb-mesh |
+| summary 是 `Unauthorized: HMAC signature...apikey not found` | **全局默认模型(astron)是死的**→按 §1.2 在 <MESH_ROOT>\opencode.json 钉活模型 |
+| `-32602 Invalid params`(cwd) | 节点表漏配 cwd→填 <MESH_ROOT> |
 | 进程 613ms 自杀 | 插头漏 no_auto_port:true |
-| `plug disabled` | 只改共享没同步 C:\wb-mesh,或没重启 |
+| `plug disabled` | 只改共享没同步 <MESH_ROOT>,或没重启 |
 | 208 的 opencode-local 也红着 | **另一台机器的另一个实例**,凭据独立——各修各的 |
 
 ## 3. 维护纪律
 
-- plugs/opencode.json 改动走 wb-green git + 同步 C:\wb-mesh 双副本 + 重启 harnessd
+- plugs/opencode.json 改动走 wb-green git + 同步 <MESH_ROOT> 双副本 + 重启 harnessd
 - 绿模单例;oc 频道(AI协调频道-oc)转维护,安静即正常
 - 全局默认模型的修复归 opencode 账号侧(本项目级绕开不阻塞)
 

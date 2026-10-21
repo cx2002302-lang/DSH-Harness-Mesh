@@ -1,7 +1,7 @@
 # kimicode 接入发布包
 
 > 版本:v1.0(2026-10-18 01:10)· 状态:**全绿+实机测试通过**(PONG 4.9s/带产物 34s 独立验证/开团 all_done)
-> 适用:WinPC(CHINAMI-EKC4J2J,与 workbuddy/zcode 同机)上的 kimicode 接入
+> 适用:WinPC(node-win-01,与 workbuddy/zcode 同机)上的 kimicode 接入
 
 ## 这个包里有什么
 
@@ -20,8 +20,8 @@
 
 增量式——绿模/harnessd/服务端插件都已在跑,kimicode 只需:
 1. plugs.json 的 kimicode-exec 填 command(kimi.exe)/args(["acp"])/**no_auto_port:true**/enabled:true
-2. 同步 C:\wb-mesh\plugs.json + 重启 harnessd_win
-3. 主控侧登记节点(**cwd 必须配 C:\wb-mesh**——kimi 拒 cwd:null)
+2. 同步 <MESH_ROOT>\plugs.json + 重启 harnessd_win
+3. 主控侧登记节点(**cwd 必须配 <MESH_ROOT>**——kimi 拒 cwd:null)
 4. 凭据:一次性 `kimi login`(device-code flow,长效)
 
 ## kimicode 形态要点(四形态中最简)
@@ -43,3 +43,5 @@
 ## 变更
 
 - v1.0(2026-10-18 01:10):首个发布包。20 分钟接入(最快纪录)、三项实机测试全过、no_auto_port 机制入库
+
+> qoder 适配器的开场提示词文档已统一收敛到仓顶层 `docs/qoder-adapter-prompt.md`(本树不再保留副本)。

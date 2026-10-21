@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.3.0 — 2026-10-21
+
+- 客户端件大修(必修 1-7):适配器并发/死锁/孤儿收尸/单例锁/频道写入锁全面加固
+- wb-gateway-adapter 多轮丢终文修复
+- harnessd:未知 plugId 由静默回退改**硬报错** + plug.env 注入 + 收树(承接 v1.2.9 备忘)
+- 红线脱敏:入库文件全部清除内网 IP/机器名/人名/入网码/真实部署路径字面量,统一改 `<PLACEHOLDER>` 占位符 + env 覆盖说明;新增 src/qoder/client/config/plugs.example.json(6 插头全占位符模板)
+- qoder 入网收录:新建 src/qoder/(qoder-adapter.py + README/DEPLOY),qoderclicn CN CLI 经适配器接入(承接 v1.2.9)
+
 ## v1.2.9 — 2026-10-21
 
 - qoder(Qoder CN CLI qoderclicn)入网:qoder-adapter.py ACP 插头 + qoder-exec 注册,验收五项全绿(冒烟/节点登记/探测 2 模型/e2e 真回复/cancel)

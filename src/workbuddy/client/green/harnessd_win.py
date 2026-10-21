@@ -4,7 +4,8 @@
 harnessd 的 Windows 被控端实现（与 208 上 harness-mesh 的 acp-plug 协议兼容）
 
 ## 为什么要写这个
-mesh 侧的节点 `CHINAMI-EKC4J2J-workbuddy` 类型是 `acp-plug`，它不是简单的
+mesh 侧的本地节点（plugId 默认按计算机名生成：`<计算机名>-workbuddy`，可用
+HM_NODE_NAME 覆盖）类型是 `acp-plug`，它不是简单的
 「TCP→stdio 哑桥」。主控的完整流程是：
 
   控制连接(4字节长度帧 JSON-RPC)
@@ -26,14 +27,16 @@ mesh 侧的节点 `CHINAMI-EKC4J2J-workbuddy` 类型是 `acp-plug`，它不是�
 - read 必须用 read1/os.read，绝不能用 read(n)（会阻塞攒满 n 字节）
 
 用法：
-  python C:\\wb-mesh\\harnessd_win.py [--host 0.0.0.0] [--port 7080]
+  python <HM_BASE_DIR>/harnessd_win.py [--host 0.0.0.0] [--port 7080]
 环境变量：
-  ANN_NODE_IP   自报的 ANN 绿模地址（例如 <tailnet-ip>）
+  ANN_NODE_IP   自报的 ANN 绿模地址（部署时提供,形如 <ANN-NODE-IP>）
 """
 import argparse
 import json
 import os
 import platform
+import re
+import shutil
 import socket
 import struct
 import subprocess
@@ -41,16 +44,51 @@ import sys
 import threading
 import time
 
-# ---- codebuddy CLI 位置 ----
-NODE = r"C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2-6\node.exe"
+# 运行时根目录：plugs.json、logs、默认 cwd、cbcli 都从这里派生。
+# 运行目录钉死在单一固定路径时，影子实例(换端口做验证)会把自己的日志写进生产同一份
+# harnessd_win.log，排查时两条时间线混在一起；给个 env 覆盖，验证和发布都能用。
+DEFAULT_CWD = os.environ.get("HM_BASE_DIR", os.getcwd())  # 缺省=当前运行目录;部署时用 HM_BASE_DIR 指定
+PLUGS_FILE = os.path.join(DEFAULT_CWD, "plugs.json")
+LOGDIR = os.path.join(DEFAULT_CWD, "logs")
 
-# 首选：官方独立 CLI（2.168.2，2026-10 装于 C:\wb-mesh\cbcli）。
+# ---- codebuddy CLI 位置 ----
+# HM_NODE / HM_CBJS / HM_NODE_NAME / HM_BASE_DIR 可覆盖；不给就按当前机器发现。
+# 原来这里写死了当前机器的用户目录 + 精确版本号 22.22.2-6 + 一台机器的 plugId：
+# 换台机器或换个用户，spawn 直接 ENOENT，而 plugs.json 缺省时没人能改源码里的字面量。
+def _home():
+    return os.environ.get("USERPROFILE") or os.environ.get("HOME") or os.path.expanduser("~")
+
+
+def _newest_version_dir(root, exe):
+    """.workbuddy/binaries/node/versions/<版本>/ 里挑最新的一份。
+    版本号按数字比：字典序会把 22.22.2 排在 3.9.1 前面。"""
+    try:
+        vs = [d for d in os.listdir(root) if os.path.exists(os.path.join(root, d, exe))]
+    except OSError:
+        return None
+    if not vs:
+        return None
+    vs.sort(key=lambda d: [int(x) for x in re.split(r"[^0-9]+", d) if x])
+    return os.path.join(root, vs[-1], exe)
+
+
+def _find_node():
+    return (_newest_version_dir(os.path.join(_home(), ".workbuddy", "binaries", "node", "versions"),
+                                "node.exe")
+            or shutil.which("node") or "node")
+
+
+NODE = os.environ.get("HM_NODE") or _find_node()
+
+# 首选：官方独立 CLI（2.168.2，装在运行时根目录的 cbcli 下）。
 # 不要用 app.asar 里解出来的旧快照（2.103.3）——它不认识当前的
 # account-scoped-external-link 认证类型，AuthenticationManager 会无限重试，
 # 导致 session/new 永久挂起（既不返回也不报错）。
-CBJS_NEW = r"C:\wb-mesh\cbcli\node_modules\@tencent-ai\codebuddy-code\dist\codebuddy.js"
-CBJS_OLD = r"C:\Users\Administrator\.workbuddy\temp\app-extracted\cli\dist\codebuddy.js"
-CBJS = CBJS_NEW if os.path.exists(CBJS_NEW) else CBJS_OLD
+CBJS_NEW = os.path.join(DEFAULT_CWD, "cbcli", "node_modules", "@tencent-ai",
+                        "codebuddy-code", "dist", "codebuddy.js")
+CBJS_OLD = os.path.join(_home(), ".workbuddy", "temp", "app-extracted", "cli", "dist", "codebuddy.js")
+CBJS = os.environ.get("HM_CBJS") or next(
+    (p for p in (CBJS_NEW, CBJS_OLD) if os.path.exists(p)), CBJS_NEW)
 
 # 桌面端注入的这些变量会让 CLI 走错认证分支 / 连错端点，spawn 时必须剥掉
 STRIP_ENV = [
@@ -68,9 +106,6 @@ def build_clean_env():
     env["PYTHONIOENCODING"] = "utf-8"
     # 若外部已提供 CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN，原样继承
     return env
-DEFAULT_CWD = r"C:\wb-mesh"
-PLUGS_FILE = os.path.join(DEFAULT_CWD, "plugs.json")
-LOGDIR = os.path.join(DEFAULT_CWD, "logs")
 
 CREATE_NO_WINDOW = 0x08000000
 MAX_FRAME = 8 * 1024 * 1024
@@ -80,9 +115,12 @@ STREAMS = {}          # streamId -> {"proc":..., "conn":..., "plug_id":...}
 SEQ = {"n": 0}
 CTL_CONNS = []        # 活跃控制连接(用于 task.exit 事件回传)
 
-# 默认 plugs：即使 mesh 侧 plugId 与本地不完全一致，也有兜底
+# 默认 plugs：即使 mesh 侧 plugId 与本地不完全一致，也有兜底。
+# 节点名按"计算机名+workbuddy"自动取(mesh 侧统一的命名规约)，HM_NODE_NAME 可覆盖；
+# 原来这里钉死了由当前这台机器算出来的 plugId，同网段第二台机一起上线就撞名。
+NODE_NAME = os.environ.get("HM_NODE_NAME") or f"{os.environ.get('COMPUTERNAME') or platform.node()}-workbuddy"
 DEFAULT_PLUGS = [
-    {"plugId": "CHINAMI-EKC4J2J-workbuddy", "name": "workbuddy",
+    {"plugId": NODE_NAME, "name": "workbuddy",
      "command": NODE, "args": [CBJS, "--acp"]},
     {"plugId": "workbuddy", "name": "workbuddy",
      "command": NODE, "args": [CBJS, "--acp"]},
@@ -158,16 +196,32 @@ def find_plug(plugs, plug_id):
 
 
 # ---------------- 自报 ----------------
+def _lan_addr():
+    """UDP connect 技巧取本机内网 IPv4(不发包，只让内核挑一条路由)。
+    探测目标原来钉死一个具体内网 IP:80——换台没有这个网段的机器，挑不到路由就静默
+    变 None，主控按 lan_addr 找节点找不到，现场还没法改。LAN_PROBE_IP/PORT 可指到
+    本地可达地址；那条也挑不出来时再兜一发公网 DNS(同样只是挑路由)。"""
+    host = os.environ.get("LAN_PROBE_IP", "192.0.2.1")  # 缺省=RFC5737 文档占位地址;部署时用 LAN_PROBE_IP 指到局域网可达地址
+    port = int(os.environ.get("LAN_PROBE_PORT", "80"))
+    targets = [(host, port)]
+    fallback = ("8.8.8.8", 53)
+    if fallback not in targets:
+        targets.append(fallback)
+    for h, p in targets:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((h, p))
+            return s.getsockname()[0]
+        except OSError:
+            continue
+        finally:
+            s.close()
+    return None
+
+
 def self_report(plugs):
     ann = os.environ.get("ANN_NODE_IP")
-    lan = None
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("<MAIN_GUI_HOST>", 80))
-        lan = s.getsockname()[0]
-        s.close()
-    except Exception:
-        pass
+    lan = _lan_addr()
     return {
         "computer_name": platform.node(),
         "os": f"{platform.system()} {platform.release()}",
@@ -179,6 +233,31 @@ def self_report(plugs):
 
 
 # ---------------- 数据管道 ----------------
+def kill_tree(proc, why=""):
+    """terminate() 在 Windows 上只干掉直接子进程，插头自己起的 CLI/孙进程会留成孤儿
+    (2026-10-21 主控审计必修③)。taskkill /T 收整棵树，收不动再退化成 terminate/kill。"""
+    if proc is None:
+        return
+    try:
+        if proc.poll() is None:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=20, creationflags=CREATE_NO_WINDOW)
+    except Exception as e:
+        log(f"taskkill pid={getattr(proc, 'pid', '?')} 失败({why}): {e}")
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=15)
+    except Exception:
+        try:
+            proc.kill()
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+
+
 def _pipe(conn, proc, stream_id):
     """attach 之后：裸字节双向透传。"""
 
@@ -209,6 +288,12 @@ def _pipe(conn, proc, stream_id):
         except Exception:
             pass
         finally:
+            # 先 shutdown 再 close：Windows 下 close() 不会打断另一个线程正卡在 recv 上的
+            # pump_in，管道关掉而 pump_in 永远挂着 = conn 悬挂(必修③的另一半)
+            try:
+                conn.shutdown(socket.SHUT_RD)
+            except Exception:
+                pass
             try:
                 conn.close()
             except Exception:
@@ -226,10 +311,7 @@ def _pipe(conn, proc, stream_id):
         notify_task_exit(stream_id, exit_code)
     except Exception as e:
         log(f"task.exit 通知失败: {e}")
-    try:
-        proc.terminate()
-    except Exception:
-        pass
+    kill_tree(proc, "管道结束")
     with LOCK:
         STREAMS.pop(stream_id, None)
 
@@ -246,12 +328,10 @@ def task_open(params, plugs):
         if not plug.get("command"):
             return None, f"plug not configured: {plug.get('note') or plug_id}"
     if not plug:
-        # 完全匹配不到（且非别名）才容错回退到第一个可用 plug
-        log(f"未知 plugId={plug_id}，回退到默认 plug")
-        enabled = [p for p in plugs if p.get("enabled", True) and p.get("command")]
-        plug = enabled[0] if enabled else None
-    if not plug:
-        return None, "no plug configured"
+        # 匹配不到就是匹配不到：静默回退到列表首个 plug 会让主控把别的 harness 的
+        # 回复当成目标 harness 的（实测 2026-10-21 00:05 探测 qoder-exec 拿到
+        # workbuddy 的 49 模型表），多 harness 网格里这个错会一路传到结论里
+        return None, f"unknown plugId: {plug_id}"
 
     cmd = plug.get("command")
     args = plug.get("args", [])
@@ -266,10 +346,13 @@ def task_open(params, plugs):
     try:
         # kimi 等原生 ACP CLI 不认识 --port,插头用 no_auto_port 声明不追加
         extra = [] if plug.get("no_auto_port") else ["--port", str(free_port)]
+        # plug.env 后放：插头自己声明的变量应当覆盖守护进程的继承环境（此前被完全忽略，
+        # 导致 plugs.json 的 env 段形同注释，调参只能改适配器代码重启）
         proc = subprocess.Popen(
             [cmd] + list(args) + extra,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            cwd=cwd, env=build_clean_env(), creationflags=CREATE_NO_WINDOW,
+            cwd=cwd, env={**build_clean_env(), **(plug.get("env") or {})},
+            creationflags=CREATE_NO_WINDOW,
         )
     except Exception as e:
         log(f"spawn 失败: {e}")
@@ -315,7 +398,7 @@ def task_close(params):
     if not st:
         return {"ok": False}
     try:
-        st["proc"].terminate()
+        kill_tree(st["proc"], f"task.close {sid}")
     except Exception:
         pass
     try:

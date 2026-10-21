@@ -53,9 +53,9 @@ export const tools = [
     description: "WorkBuddy 界面截图(存到 WinPC 本地,返回路径+字节数)",
     inputSchema: {
       type: "object",
-      properties: { out: { type: "string", description: "输出路径(WinPC 本地,如 C:\\wb-mesh\\dsh_shot.png);缺省用默认" } },
+      properties: { out: { type: "string", description: "输出路径(WinPC 本地,如 <MESH_ROOT>\\dsh_shot.png);缺省用默认" } },
     },
-    doc: "返回 {ok, path, bytes}。截图在 WinPC 的 C:\\wb-mesh\\wb-ui-shot.png;要看图让老徐或经共享取。",
+    doc: "返回 {ok, path, bytes}。截图在 WinPC 的 <MESH_ROOT>\\wb-ui-shot.png;要看图让管理员或经共享取。",
   },
   {
     name: "wb_ui_switch_session",
@@ -97,7 +97,7 @@ export const tools = [
       properties: { text: { type: "string", description: "要发送的消息内容" } },
       required: ["text"],
     },
-    doc: "返回 {ok, runId, status, elapsed, text}。走 Gateway POST /api/v1/runs——不碰界面(不影响老徐用电脑),且能拿到完整结果。等同于派任务,但目标是当前会话。",
+    doc: "返回 {ok, runId, status, elapsed, text}。走 Gateway POST /api/v1/runs——不碰界面(不影响管理员用电脑),且能拿到完整结果。等同于派任务,但目标是当前会话。",
   },
   {
     name: "wb_ui_rename_session",

@@ -19,6 +19,10 @@ mesh-guardian.py — WinPC 侧 harness-mesh 自动值守进程（WorkBuddy 哨�
 """
 import json
 import os
+import platform
+import queue
+import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -26,27 +30,58 @@ import time
 import urllib.request
 from pathlib import Path
 
+if os.name == "nt":
+    import msvcrt
+
 # ---------- 路径常量 ----------
-SHARE = Path(r"D:\AgentHome\DshData")                 # 共享本机视图（= \\192.168.9.100\DshData）
-WB_GREEN = SHARE / "wb-green"
+# 全部 env 可覆盖(MG_SHARE / MG_PYTHON / MG_STDIO_BRIDGE / MG_NODE / MG_CLI / MG_NODE_NAME)，
+# 不给就按当前机器发现：用户目录、.workbuddy 里最新的解释器、WorkBuddy 的安装位置。
+# 原来这几条把当前机器的用户目录、精确版本号(3.13.12 / 22.22.2-6)和一台机器的名字
+# 写死在源码里：换台机器/换个用户/升个版本就是 ENOENT，而现场改不动字面量，只会看到"没起来"。
+HERE = Path(__file__).resolve().parent
+
+
+def _home() -> Path:
+    return Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or str(Path.home()))
+
+
+def _newest(root: Path, exe: str, fallback):
+    """root 下按版本号挑最新的那份。版本号必须按数字比——字典序会把 3.13.12
+    排在 3.9.1 前面，取 [-1] 就静默退到更旧的解释器。"""
+    try:
+        vs = [p for p in root.iterdir() if p.is_dir() and (p / exe).exists()]
+    except OSError:
+        return fallback
+    if not vs:
+        return fallback
+    return str(sorted(vs, key=lambda p: [int(x) for x in re.split(r"[^0-9]+", p.name) if x])[-1] / exe)
+
+
+SHARE = Path(os.environ.get("MG_SHARE") or HERE.parent)   # 共享本机视图;局域网共享盘部署时用 MG_SHARE 指到 <LAN-SHARE> 路径
+WB_GREEN = HERE                                           # 状态/日志跟着脚本自己走，不跟共享盘走
 CHANNEL = SHARE / "AI协调频道"
 CHAT_LOG = CHANNEL / "chat.log"
 STATE_FILE = WB_GREEN / "guardian-state.json"
 LOG_FILE = WB_GREEN / "guardian-workbuddy.log"
 
-PYTHON = r"C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\python.exe"
-STDIO_BRIDGE = r"C:\Users\Administrator\.workbuddy\mcp-bin\harness-mcp-stdio.py"
-NODE = r"C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2-6\node.exe"
-CLI = r"C:\Users\Administrator\AppData\Local\Programs\WorkBuddy\resources\app.asar.unpacked\cli\bin\codebuddy"
+WB_BIN = _home() / ".workbuddy" / "binaries"
+PYTHON = os.environ.get("MG_PYTHON") or _newest(WB_BIN / "python", "python.exe", sys.executable)
+STDIO_BRIDGE = os.environ.get("MG_STDIO_BRIDGE") or str(_home() / ".workbuddy" / "mcp-bin" / "harness-mcp-stdio.py")
+NODE = os.environ.get("MG_NODE") or _newest(WB_BIN / "node", "node.exe", shutil.which("node") or "node")
+CLI = os.environ.get("MG_CLI") or str(
+    Path(os.environ.get("LOCALAPPDATA") or str(_home() / "AppData" / "Local"))
+    / "Programs" / "WorkBuddy" / "resources" / "app.asar.unpacked" / "cli" / "bin" / "codebuddy")
 
-NODE_NAME = "CHINAMI-EKC4J2J-workbuddy"
+NODE_NAME = os.environ.get("MG_NODE_NAME") or \
+    f"{os.environ.get('COMPUTERNAME') or platform.node()}-workbuddy"
 CREATE_NO_WINDOW = 0x08000000  # 无控制台窗口(pythonw 下 subprocess 默认会弹窗)
 POLL_CHANNEL = 15      # 频道哨兵间隔 s
 POLL_LOGIN_FS = 60     # 登录文件检测间隔 s
 LOGIN_P_EVERY = 900    # -p 兜底验证间隔 s（15min）
 POLL_MESH = 30         # mesh 哨兵间隔 s
+BRIDGE_WAIT = float(os.environ.get("MG_BRIDGE_WAIT", "60"))   # 网桥一次响应的上限 s(原版的 60 只算不用:readline 不返回就判不到)
 
-_lock = threading.Lock()          # 保护频道写入（读-改-写）
+_lock = threading.Lock()          # 保护频道写入(只护本进程三线程;跨进程靠 O_APPEND)
 _mesh_lock = threading.Lock()     # 保护 mesh stdio 客户端
 _stop = threading.Event()
 
@@ -69,10 +104,17 @@ def load_state() -> dict:
                 "known_task_ids": [], "mesh_alerts": {}}
 
 
-def save_state(st: dict):
-    tmp = STATE_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(STATE_FILE)
+def save_state(updates: dict):
+    """只合并本次改动的键:整写会把别的线程刚更新的键盖回旧值,
+    重启后按旧 seen_blocks 重放历史块 → 对同一批消息重复自动应答。"""
+    try:
+        st = load_state()
+        st.update(updates)
+        tmp = STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(STATE_FILE)
+    except Exception as e:
+        log(f"状态落盘失败: {e}")
 
 
 # ---------- 频道读写 ----------
@@ -91,14 +133,70 @@ def split_blocks(text: str):
     return ["\n".join(b).strip() for b in blocks if any(s.strip() for s in b)]
 
 
+LOCK_OFF = 1 << 30   # 远超文件尾的哨兵偏移:锁它只当排队牌,读全文的人碰不到这个范围
+
+
+def _append_locked(path, make_block):
+    """跨进程串行追加:拿到锁之后才构造内容并落盘。
+
+    为什么要锁:Windows 的 O_APPEND 不保证跨进程原子 —— 实测两进程各追加 120 块,
+    有一对算出同一个 EOF 偏移,后写的整块盖掉先写的(块数 240/241,文件正好短一块)。
+    POSIX 上 O_APPEND 是真原子的,所以锁只在 nt 加。
+    """
+    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
+    fd = os.open(str(path), flags)
+    locked = False
+    try:
+        if os.name == "nt":
+            os.lseek(fd, LOCK_OFF, os.SEEK_SET)
+            for _ in range(100):          # 最多等 5s;抢不到就报错,不许盲写
+                try:
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                    locked = True
+                    break
+                except OSError:
+                    time.sleep(0.05)
+            if not locked:
+                raise RuntimeError("频道锁 5s 没抢到(有写者卡住)")
+        data = make_block().encode("utf-8")
+        off = 0
+        while off < len(data):            # os.write 可能只写一半,漏掉的那半就是丢的块
+            off += os.write(fd, data[off:])
+    finally:
+        try:
+            if locked:
+                os.lseek(fd, LOCK_OFF, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except Exception:
+            pass
+        os.close(fd)
+
+
 def channel_append(block_body: str, speaker: str = "WorkBuddy"):
-    """读-改-写追加一个块；只增不改。返回是否成功。"""
+    """追加一个块:锁内构造 + O_APPEND 落盘,绝不整写回文件。
+
+    原来的 read_text → 拼 → write_text 只护得住本进程三个线程;别的节点在同一时刻
+    落盘的新块,会被这份旧内容原样盖掉 —— 频道是 append-only,盖掉就是丢消息
+    (实测并发 120+120 块对方丢 23 块,还能写出半个块让 UTF-8 直接解码失败)。
+    """
     with _lock:
         try:
-            current = CHAT_LOG.read_text(encoding="utf-8") if CHAT_LOG.exists() else ""
-            ts = time.strftime("%Y-%m-%d %H:%M")
-            new = current.rstrip("\n") + f"\n\n### [{ts}] {speaker}\n{block_body.strip()}\n"
-            CHAT_LOG.write_text(new, encoding="utf-8")
+            def make_block():
+                ts = time.strftime("%Y-%m-%d %H:%M")
+                tail = b""
+                try:
+                    if CHAT_LOG.exists():
+                        with open(CHAT_LOG, "rb") as f:
+                            f.seek(max(0, CHAT_LOG.stat().st_size - 8))
+                            tail = f.read()
+                except Exception:
+                    tail = b""
+                n = len(tail) - len(tail.rstrip(b"\n"))   # 块间留且只留一个空行
+                text = "\n" * max(0, 2 - n) + f"### [{ts}] {speaker}\n{block_body.strip()}\n"
+                # 现网 chat.log 是纯 CRLF(2708 行,零裸 LF),按房规写;混行尾渲染器不挑但 diff 难看。
+                # os.open 在 Windows 默认文本模式会再翻一次 \n,所以下面必须带 O_BINARY,否则变成 \r\r\n
+                return text.replace("\n", "\r\n")
+            _append_locked(CHAT_LOG, make_block)
             return True
         except Exception as e:
             log(f"频道写入失败: {e}")
@@ -113,6 +211,7 @@ class MeshClient:
     def __init__(self):
         self.proc = None
         self.rid = 0
+        self.q = None
         self._ensure()
 
     def _ensure(self):
@@ -124,6 +223,8 @@ class MeshClient:
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, encoding="utf-8", bufsize=1, env=env,
             creationflags=CREATE_NO_WINDOW)
+        self.q = queue.Queue()
+        threading.Thread(target=self._pump, args=(self.proc, self.q), daemon=True).start()
         self._send({"jsonrpc": "2.0", "id": self._next(),
                     "method": "initialize",
                     "params": {"protocolVersion": "2024-11-05", "capabilities": {},
@@ -131,6 +232,37 @@ class MeshClient:
         self._read_until_response()
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         log("mesh stdio 客户端已握手")
+
+    @staticmethod
+    def _pump(proc, q):
+        """把 stdout 一行行搬进队列。readline 会卡,但只卡在这个 daemon 线程里,不卡调用方。"""
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                q.put(line)
+        except Exception:
+            pass
+        q.put(None)   # EOF/读挂了:放个哨兵,让 _read_until_response 能立刻放手
+
+    def _drop(self, why):
+        """判定这次网桥不可信:收进程、丢句柄,让下一轮 _ensure 重建(锁也还得开)。"""
+        proc, self.proc, self.q = self.proc, None, None
+        if proc and proc.poll() is None:
+            try:
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                   capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=15)
+                else:
+                    proc.terminate()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        raise RuntimeError(f"{why}(mesh bridge pid={getattr(proc, 'pid', '?')})")
 
     def _next(self):
         self.rid += 1
@@ -140,12 +272,19 @@ class MeshClient:
         self.proc.stdin.write(json.dumps(obj, ensure_ascii=False) + "\n")
         self.proc.stdin.flush()
 
-    def _read_until_response(self, timeout=60):
+    def _read_until_response(self, timeout=BRIDGE_WAIT):
         deadline = time.time() + timeout
-        while time.time() < deadline:
-            line = self.proc.stdout.readline()
-            if not line:
-                raise RuntimeError("mesh bridge stdout EOF")
+        q = self.q
+        while True:
+            left = deadline - time.time()
+            if left <= 0:
+                self._drop(f"响应超时 {timeout}s(对端一个字都没回)")
+            try:
+                line = q.get(timeout=min(left, 1.0))
+            except queue.Empty:
+                continue
+            if line is None:
+                self._drop("stdout EOF")
             line = line.strip()
             if not line:
                 continue
@@ -155,7 +294,6 @@ class MeshClient:
                 continue
             if obj.get("id") is not None or "error" in obj:
                 return obj
-        raise RuntimeError("mesh bridge read timeout")
 
     def call(self, name: str, args: dict):
         with _mesh_lock:
@@ -215,8 +353,7 @@ def t1_channel_watch():
                             f"人工研判后下一条回复；若是登录后联调指令，主会话会立即执行。")
                         log(f"T1 已自动应答（{topic}）: {'成功' if ok else '失败'}")
                 seen = len(blocks)
-                st["seen_blocks"] = seen
-                save_state(st)
+                save_state({"seen_blocks": seen})
         except Exception as e:
             log(f"T1 异常: {e}")
         _stop.wait(POLL_CHANNEL)
@@ -356,8 +493,7 @@ def t3_mesh_watch():
                         channel_append(
                             f"[自动·mesh 哨兵] 任务 {tid} 到达终态：{state}（{detail}）。")
                         known.discard(tid)
-                        st["known_task_ids"] = sorted(known)
-                        save_state(st)
+                        save_state({"known_task_ids": sorted(known)})
                     elif s.get("pending_permission"):
                         channel_append(
                             f"[自动·mesh 哨兵] 任务 {tid} 触发权限确认 pending_permission，需要人工点允许（或 plug 侧配 --permission-mode dontAsk）。")
@@ -375,6 +511,9 @@ def t3_mesh_watch():
 def main():
     log("=" * 60)
     log(f"mesh-guardian 启动（节点名 {NODE_NAME}）")
+    for name, path in (("python", PYTHON), ("stdio 网桥", STDIO_BRIDGE), ("node", NODE), ("CLI", CLI)):
+        if not os.path.exists(path):
+            log(f"[警告] {name} 不存在: {path}（用 MG_PYTHON/MG_STDIO_BRIDGE/MG_NODE/MG_CLI 指过来）")
     threads = [
         threading.Thread(target=t1_channel_watch, name="T1-channel", daemon=True),
         threading.Thread(target=t2_gateway_watch, name="T2-gateway", daemon=True),

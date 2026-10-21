@@ -1,4 +1,4 @@
-# 给 qoder 的开场提示词(老徐转发用)
+# 给 qoder 的开场提示词(管理员转发用)
 
 > 用法:把下面正文整段发给 qoder 的会话。
 
@@ -6,37 +6,37 @@
 
 你要接入 harness 组网系统,成为被主控调度的节点之一。
 
-**我们是谁**:主控侧 = 208 服务器 DSH,插头协议调度;已入网 workbuddy / zcode / kimicode / opencode。你是同机第五个,绿模(ann-agent + harnessd_win)已经在跑,你只需要加插头。
+**我们是谁**:主控侧 = DSH 服务器,插头协议调度;已入网 workbuddy / zcode / kimicode / opencode。你是同机第五个,绿模(ann-agent + harnessd_win)已经在跑,你只需要加插头。
 
-**第一件事:盯屏(长期职责)**。30-60 秒哨兵盯频道 chat.log,`@qoder` 的转主会话处理并回执。频道位置:`\\192.168.9.100\DshData\AI协调频道-qoder\chat.log`;浏览器可开同目录 chat.html,10 秒自刷新。
+**第一件事:盯屏(长期职责)**。30-60 秒哨兵盯频道 chat.log,`@qoder` 的转主会话处理并回执。频道位置:`\\<LAN-IP>\<MESH_ROOT>\AI协调频道-qoder\chat.log`;浏览器可开同目录 chat.html,10 秒自刷新。
 
 **第二步:我们已探明的现状(你确认/纠偏即可)**:
 
-- CLI = `C:\Users\Administrator\.qoder-cn\bin\qoderclicn\qoderclicn.exe`,版本 1.0.25,已知支持 `-p/--print`、`-m/--model`、`--list-models`、`-w/--cwd`、`--output-format`、`-c/--continue`、`--permission-mode`。
+- CLI = `<USERPROFILE>\.qoder-cn\bin\qoderclicn\qoderclicn.exe`,版本 1.0.25,已知支持 `-p/--print`、`-m/--model`、`--list-models`、`-w/--cwd`、`--output-format`、`-c/--continue`、`--permission-mode`。
 - 鉴权待你确认:headless 模式是否独立可跑。
 - 能力特征:`--list-models` 模型选择、`--list-sessions`/`-c` 会话、`--permission-mode`。
 
-**核心任务**:写 `C:\wb-mesh\qoder-adapter.py`,把 qoderclicn 包装成 harness-mesh 的 acp-plug 插头。适配器为纯标准库 Python 3,解释器用 `C:\Users\Administrator\AppData\Local\Programs\Python\Python312\python.exe`。技术规格见下方「适配器技术规格」章节(先实测 CLI、六个协议方法的确切形状、工程细节五条、验收标准五条,原文照做)。
+**核心任务**:写 `<MESH_ROOT>\qoder-adapter.py`,把 qoderclicn 包装成 harness-mesh 的 acp-plug 插头。适配器为纯标准库 Python 3,解释器用 `<USERPROFILE>\AppData\Local\Programs\Python\Python312\python.exe`。技术规格见下方「适配器技术规格」章节(先实测 CLI、六个协议方法的确切形状、工程细节五条、验收标准五条,原文照做)。
 
 **按 SOP 走**:
 
 1. wb-green 仓库配插头(`qoder-exec` 条目);
 2. git commit;
-3. 同步 plugs.json 到 `C:\wb-mesh\plugs.json` 并重启 harnessd_win(keepalive 70 秒自拉);
-4. 等主控登记 CHINAMI-qoder 节点;
+3. 同步 plugs.json 到 `<MESH_ROOT>\plugs.json` 并重启 harnessd_win(keepalive 70 秒自拉);
+4. 等主控登记 node-win-01-qoder 节点;
 5. 联调 hello → PONG → e2e。
 
 插头条目形状(照抄现有 workbuddy-exec 条目结构,只改 plugId/command/args;若现有条目字段名不同,以文件为准):
 
 ```json
 {"plugId": "qoder-exec", "kind": "acp",
- "command": "C:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
- "args": ["C:\\wb-mesh\\qoder-adapter.py"], "cwd": null, "model": null}
+ "command": "<USERPROFILE>\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+ "args": ["<MESH_ROOT>\\qoder-adapter.py"], "cwd": null, "model": null}
 ```
 
-**三条血泪教训**(照抄):① harnessd 加载的是本地 `C:\wb-mesh\plugs.json` 副本;② 绿模单例,别起第二个;③ wb-green 改完必须 git commit。
+**三条血泪教训**(照抄):① harnessd 加载的是本地 `<MESH_ROOT>\plugs.json` 副本;② 绿模单例,别起第二个;③ wb-green 改完必须 git commit。
 
-**必读**(共享目录 `harness-mesh-新节点接入包/`,UNC `\\192.168.9.100\DshData\harness-mesh-新节点接入包\`):《harness-mesh接口契约》(L1/L2/L3 三层)、《MCP客户端接入指南》(你的会话可经 MCP 反召唤网格,对接网址 `http://192.168.11.208:80/api/mcp/harness-mesh`,token 找老徐)、《适配器编写指南》、acp-reference-fake-agent.py(65 行可跑桩);zcode 完整适配器 `wb-green/zcode-adapter.py` 可借结构。
+**必读**(共享目录 `harness-mesh-新节点接入包/`,UNC `\\<LAN-IP>\<MESH_ROOT>\harness-mesh-新节点接入包\`):《harness-mesh接口契约》(L1/L2/L3 三层)、《MCP客户端接入指南》(你的会话可经 MCP 反召唤网格,对接网址 `http://<ANN-NODE-IP>:<ANN-PORT>/api/mcp/harness-mesh`,token 找管理员)、《适配器编写指南》、acp-reference-fake-agent.py(65 行可跑桩);zcode 完整适配器 `wb-green/zcode-adapter.py` 可借结构。
 
 **纪律三条**:[结论]/[确认] 前缀;token/密码/API key 不进频道;阻塞直说。
 
@@ -104,8 +104,8 @@
 - 启动时对 stdin/stdout/stderr 做 `reconfigure(encoding="utf-8")`;写 stdout 每行后 flush。
 - 读 stdin 用 `for line in iter(sys.stdin.readline, "")`,不要 `for line in sys.stdin`(read-ahead 缓冲会吞行,阻塞 prompt 期间 cancel 读不到)。
 - 文件统一 LF 落盘;路径全部用原始字符串或正斜杠写全(CLI 路径、python 路径都给全,不赌 PATH)。
-- 所有诊断日志写 `C:\wb-mesh\logs\qoder-adapter.log`(目录不存在就建);**日志绝不写 stdout**——stdout 只准有 NDJSON,混进一行日志整条流就废了。
-- 自测:`python -m py_compile C:\wb-mesh\qoder-adapter.py` 过了才算写完。
+- 所有诊断日志写 `<MESH_ROOT>\logs\qoder-adapter.log`(目录不存在就建);**日志绝不写 stdout**——stdout 只准有 NDJSON,混进一行日志整条流就废了。
+- 自测:`python -m py_compile <MESH_ROOT>\qoder-adapter.py` 过了才算写完。
 - NDJSON 冒烟:写个小脚本(或直接往进程 stdin 喂行),按顺序发四条——`initialize` → `session/new` → `session/prompt`(内容用"回复两个字:收到")→ `session/cancel`,把进程 stdout 原始输出完整收下来。
 
 ### 四、验收标准(全满足才算完)

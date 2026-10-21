@@ -17,15 +17,19 @@ prompt 一次性执行,完整回复作为 agent_message_chunk 回传(stopReason=
 ZCODE_BUILTIN/PERSONAL_PROVIDER_CONFIG_FILE,否则 CLI 启动即死。
 
 配置(env,plugs.json 的 env 段显式注入):
+  ZCODE_MODELS 逗号分隔的可用型号登记(默认 GLM-5.3,GLM-5.3-Flash;仅上报展示,不支持按会话切换)
   NODE_EXE    node 可执行完整路径(默认 C:\\Program Files\\nodejs\\node.exe)
   ZCODE_CJS   zcode.cjs 完整路径(默认 ZCode 桌面版捆绑路径)
   ADAPTER_LOG 置 1 打 stderr 诊断
   ADAPTER_MAX_TURN_WAIT 单 prompt 最长等待秒数(默认 1800)
+  ADAPTER_PIPE_DRAIN_WAIT 进程退出后等 stdout/stderr 读完的秒数(默认 10)
+
 """
 import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -34,11 +38,18 @@ import time
 PROTOCOL_VERSION = 1
 DEBUG = os.environ.get("ADAPTER_LOG") == "1"
 MAX_TURN_WAIT = float(os.environ.get("ADAPTER_MAX_TURN_WAIT", "1800"))
-NODE_EXE = os.environ.get("NODE_EXE", r"C:\Program Files\nodejs\node.exe")
-ZCODE_CJS = os.environ.get(
-    "ZCODE_CJS",
-    r"C:\Users\Administrator\AppData\Local\Programs\ZCode\resources\glm\zcode.cjs")
-USER_HOME = os.environ.get("USERPROFILE") or r"C:\Users\Administrator"
+# 进程退出后等管道消费线程读完剩余字节的上限(没有这个兜底,EOF 读不到就是第二次死等)
+PIPE_DRAIN_WAIT = float(os.environ.get("ADAPTER_PIPE_DRAIN_WAIT", "10"))
+CREATE_NO_WINDOW = 0x08000000
+NODE_EXE = os.environ.get("NODE_EXE") or shutil.which("node") or r"C:\Program Files\nodejs\node.exe"
+# ZCode 的入口按当前用户的安装位置找(原来兜底钉着某一台机器某个用户的绝对路径)
+ZCODE_CJS = os.environ.get("ZCODE_CJS") or os.path.join(
+    os.environ.get("LOCALAPPDATA") or os.path.expanduser("~\\AppData\\Local"),
+    "Programs", "ZCode", "resources", "glm", "zcode.cjs")
+
+# 会话模型表:zcode 桌面 3.15.3 builtin 注册表里的真实型号;env ZCODE_MODELS 可覆盖
+MODELS = [m.strip() for m in os.environ.get("ZCODE_MODELS", "GLM-5.3,GLM-5.3-Flash").split(",") if m.strip()]
+USER_HOME = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 
 # 待响应的 ACP 请求(rid -> method)。die() 退出前逐个回 error——harnessd_win 的
 # task.exit 不回传 stderr,stdout 的 ACP error 是主控唯一能直接看到的死因通道
@@ -94,6 +105,31 @@ def acp_text_chunks(session_id, text, kind="agent_message_chunk", message_id="m1
     notify_acp("session/update", {"sessionId": session_id, "update": update})
 
 
+def kill_tree(proc, why=""):
+    """terminate()/kill() 在 Windows 上只干掉直接子进程,CLI 自己起的孙进程留成孤儿。
+    taskkill /F /T 收整棵树,收不动再退化成 terminate/kill。"""
+    if proc is None:
+        return
+    try:
+        if proc.poll() is None:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=20, creationflags=CREATE_NO_WINDOW)
+    except Exception as e:
+        log(f"taskkill pid={getattr(proc, 'pid', '?')} 失败({why}): {e}")
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=15)
+    except Exception:
+        try:
+            proc.kill()
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+
+
 # ---------- 向下:zcode -p 引擎 ----------
 
 def resolve_provider_env(env):
@@ -130,10 +166,11 @@ def resolve_provider_env(env):
     return env
 
 
-def run_prompt(cwd, text, continue_latest):
+def run_prompt(cwd, text, continue_latest, session=None):
     """跑一次 `zcode -p`,返回 (回复文本, 死因或None)。
 
     -c 续接同 cwd 最近会话(同一 ACP 会话的多轮);首轮不用。
+    session 非空时把 Popen 写回 session["proc"],session/cancel 才杀得到这轮 CLI。
     """
     env = resolve_provider_env({**os.environ})
     args = [NODE_EXE, ZCODE_CJS, "-p", text, "--cwd", cwd]
@@ -142,7 +179,11 @@ def run_prompt(cwd, text, continue_latest):
     proc = subprocess.Popen(
         args, cwd=cwd, env=env,
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, encoding="utf-8", errors="replace", bufsize=1)
+        text=True, encoding="utf-8", errors="replace", bufsize=1,
+        creationflags=CREATE_NO_WINDOW)
+    if session is not None:
+        session["proc"] = proc
+    out_parts = []
     stderr_tail = []
 
     def pump_err():
@@ -153,19 +194,34 @@ def run_prompt(cwd, text, continue_latest):
         except Exception:
             pass
 
-    threading.Thread(target=pump_err, daemon=True).start()
+    def pump_out():
+        # Windows 匿名管道只有 4-8KB:CLI 把 stdout 写满就阻塞在自己的 write 上。
+        # 只在进程退出后才读 stdout 的话,进程永不退出 = 双方死等到单轮上限,回复全丢。
+        try:
+            for line in proc.stdout:
+                out_parts.append(line)
+        except Exception:
+            pass
+
+    t_err = threading.Thread(target=pump_err, daemon=True)
+    t_out = threading.Thread(target=pump_out, daemon=True)
+    t_err.start()
+    t_out.start()
     deadline = time.time() + MAX_TURN_WAIT
     while time.time() < deadline:
         if proc.poll() is not None:
             break
         time.sleep(0.5)
     else:
-        try:
-            proc.terminate()
-        except Exception:
-            pass
+        kill_tree(proc, "单轮超时")
         return None, f"zcode -p 超时(>{MAX_TURN_WAIT}s),已终止"
-    out, _ = proc.communicate(timeout=30)
+    # 进程退出后写端关闭,消费线程读到 EOF 自然结束;有界 join 取代 communicate(timeout=30) ——
+    # communicate 不能与正在读同一句柄的线程混用,且它的 TimeoutExpired 会穿出这里
+    t_out.join(PIPE_DRAIN_WAIT)
+    t_err.join(PIPE_DRAIN_WAIT)
+    if t_out.is_alive():
+        log(f"stdout 消费线程 {PIPE_DRAIN_WAIT}s 未收尾,回复可能不完整")
+    out = "".join(out_parts)
     tail = "".join(stderr_tail).strip()
     if proc.returncode != 0:
         # 死因优先取 stderr 里最能定因的行
@@ -207,12 +263,13 @@ class Adapter:
             session = self.sessions.get(acp_sid)
             if session:
                 session["cancel"] = True
-                proc = session.get("proc")
-                if proc and proc.poll() is None:
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
+                kill_tree(session.get("proc"), "session/cancel")
+        elif method == "session/set_model":
+            # 诚实拒绝:zcode CLI(-p)无 --model,不支持按会话选模型;静默接受会跑错模型
+            respond(rid, {"jsonrpc": "2.0", "id": rid,
+                          "error": {"code": -32602, "message":
+                                    "zcode -p 引擎不支持按会话选模型;请在 ZCode 桌面端 /model 切换,"
+                                    "或在 plugs.json env ZCODE_MODELS 登记"}})
         elif rid is not None:
             respond(rid, {"jsonrpc": "2.0", "id": rid,
                           "error": {"code": -32601, "message": f"method not found: {method}"}})
@@ -227,7 +284,12 @@ class Adapter:
         self.sessions[acp_sid] = {"cwd": cwd, "turns": 0, "prompt_rid": None,
                                   "done": True, "cancel": False, "proc": None}
         log(f"session/new -> {acp_sid} cwd={cwd} model={params.get('model')}")
-        respond(rid, {"jsonrpc": "2.0", "id": rid, "result": {"sessionId": acp_sid}})
+        result = {"sessionId": acp_sid}
+        if MODELS:  # 模型清单非空时上报模型表(configOptions select)
+            result["configOptions"] = [{"id": "model", "name": "Model", "category": "model",
+                                        "type": "select", "currentValue": MODELS[0],
+                                        "options": [{"value": m, "name": m} for m in MODELS]}]
+        respond(rid, {"jsonrpc": "2.0", "id": rid, "result": result})
 
     def _session_prompt(self, rid, params):
         acp_sid = params.get("sessionId")
@@ -253,26 +315,43 @@ class Adapter:
     def _run_turn(self, acp_sid, session, text):
         turns = session["turns"]
         session["turns"] = turns + 1
-        reply, err = run_prompt(session["cwd"], text, continue_latest=turns > 0)
         rid = session["prompt_rid"]
-        if session.get("cancel"):
-            respond(rid, {"jsonrpc": "2.0", "id": rid,
-                          "result": {"stopReason": "cancelled"}})
+        answered = False
+        try:
+            reply, err = run_prompt(session["cwd"], text, continue_latest=turns > 0,
+                                    session=session)
+            if session.get("cancel"):
+                respond(rid, {"jsonrpc": "2.0", "id": rid,
+                              "result": {"stopReason": "cancelled"}})
+                answered = True
+                log(f"session {acp_sid} prompt 被取消")
+                return
+            if err:
+                acp_text_chunks(acp_sid, f"[zcode turn 失败] {err}", message_id=f"{acp_sid}-err")
+                respond(rid, {"jsonrpc": "2.0", "id": rid,
+                              "result": {"stopReason": "refusal"}})
+                log(f"session {acp_sid} prompt 失败: {err[:200]}")
+            else:
+                if reply:
+                    acp_text_chunks(acp_sid, reply, message_id=f"{acp_sid}-m{session['turns']}")
+                respond(rid, {"jsonrpc": "2.0", "id": rid,
+                              "result": {"stopReason": "end_turn"}})
+                log(f"session {acp_sid} prompt 完成,回复 {len(reply)} 字符")
+            answered = True
+        except Exception as e:
+            # 线程带异常死掉会让 busy 永远停在 True,此后每条 prompt 都被
+            # "session busy" 挡回,这个会话再也救不回来 —— 所以异常必须回终态帧并解锁
+            log(f"session {acp_sid} turn 线程异常: {type(e).__name__}: {e}")
+            if not answered and rid is not None:
+                try:
+                    respond(rid, {"jsonrpc": "2.0", "id": rid,
+                                  "error": {"code": -32603, "message":
+                                            f"zcode turn 异常: {type(e).__name__}: {str(e)[:300]}"}})
+                except Exception:
+                    pass
+        finally:
             session["busy"] = False
-            log(f"session {acp_sid} prompt 被取消")
-            return
-        if err:
-            acp_text_chunks(acp_sid, f"[zcode turn 失败] {err}", message_id=f"{acp_sid}-err")
-            respond(rid, {"jsonrpc": "2.0", "id": rid,
-                          "result": {"stopReason": "refusal"}})
-            log(f"session {acp_sid} prompt 失败: {err[:200]}")
-        else:
-            if reply:
-                acp_text_chunks(acp_sid, reply, message_id=f"{acp_sid}-m{session['turns']}")
-            respond(rid, {"jsonrpc": "2.0", "id": rid,
-                          "result": {"stopReason": "end_turn"}})
-            log(f"session {acp_sid} prompt 完成,回复 {len(reply)} 字符")
-        session["busy"] = False
+            session["proc"] = None
 
 
 def main():

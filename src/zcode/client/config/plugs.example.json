@@ -1,0 +1,30 @@
+[
+  {
+    "_comment": " plugs.example.json —— 6 插头模板。发布版全部用占位符,落地前逐个替换: <INSTALL_DIR>=适配器/脚本统一落地目录(绿模共享目录,如 D:/xxx/wb-green 或 ~/wb-green); <PYTHON_EXE>=python.exe 全路径(建议 ≥3.10,适配器纯标准库); <NODE_EXE>=node.exe 全路径(仅 workbuddy-ui 需要)。 所有路径一律正斜杠或双反斜杠转义。env 段保留键名,值按部署环境填写;留空的键表示用适配器/CLI 缺省。填好后复制为 harnessd 实际加载的 plugs.json(注意与共享份保持同步)。 ",
+    "plugs": "见下;本文件仅是模板,顶层 _comment 键落地时可删"
+  },
+  {
+    "plugId": "zcode-exec",
+    "harness": "zcode",
+    "kind": "acp",
+    "command": "<PYTHON_EXE>",
+    "args": [
+      "<INSTALL_DIR>/zcode-adapter.py"
+    ],
+    "capabilities": [
+      "exec"
+    ],
+    "no_auto_port": false,
+    "aliases": [
+      "zcode"
+    ],
+    "env": {
+      "ZCODE_CJS": "",
+      "ADAPTER_LOG": "1",
+      "ADAPTER_MAX_TURN_WAIT": "1800",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "enabled": true,
+    "note": "zcode CLI -p 引擎;ZCODE_CJS 留空=适配器按安装位置自动发现 zcode.cjs"
+  }
+]

@@ -1,7 +1,7 @@
 # opencode(WinPC)接入发布包
 
 > 版本:v1.0(2026-10-18 01:50)· 状态:**全绿+实机测试通过**(PONG 31.5s/模型复验/带产物 56s 独立验证)
-> 适用:WinPC(CHINAMI-EKC4J2J,与 workbuddy/zcode/kimicode 同机)上的 opencode 接入
+> 适用:WinPC(node-win-01,与 workbuddy/zcode/kimicode 同机)上的 opencode 接入
 
 ## 这个包里有什么
 
@@ -20,9 +20,9 @@
 
 增量式——绿模/harnessd/服务端插件都已在跑,opencode 只需:
 1. plugs.json 的 opencode-exec 填 command(opencode.exe)/args(["acp"])/**no_auto_port:true**/enabled:true
-2. **★C:\wb-mesh\opencode.json 钉模型**(全局默认模型可能是死的,acp 又拒 -m)
-3. 同步 C:\wb-mesh\plugs.json + 重启 harnessd_win
-4. 主控侧登记节点(**cwd 必须配 C:\wb-mesh**)
+2. **★<MESH_ROOT>\opencode.json 钉模型**(全局默认模型可能是死的,acp 又拒 -m)
+3. 同步 <MESH_ROOT>\plugs.json + 重启 harnessd_win
+4. 主控侧登记节点(**cwd 必须配 <MESH_ROOT>**)
 
 ## opencode 形态要点
 
@@ -30,7 +30,7 @@
 |---|---|
 | 产品形态 | **CLI-first 原生 ACP**(opencode acp,零适配器) |
 | 鉴权 | CLI 独立持证(auth.json 多组;与 208 实例凭据独立——208 那个 key 过期红着,这个活着) |
-| 模型 | 经 C:\wb-mesh\opencode.json 钉 `opencode/deepseek-v4.1-flash-free`(全局默认 astron 已死) |
+| 模型 | 经 <MESH_ROOT>\opencode.json 钉 `opencode/deepseek-v4.1-flash-free`(全局默认 astron 已死) |
 | 关键配置 | no_auto_port + cwd 合法 + **项目级钉模型** |
 | 能力 | loadSession/close/fork/list/resume/mcp http+sse/embeddedContext+image |
 
@@ -43,3 +43,5 @@
 ## 变更
 
 - v1.0(2026-10-18 01:50):首个发布包。28 分钟接入、三项实机测试全过、钉模型方案入库
+
+> qoder 适配器的开场提示词文档已统一收敛到仓顶层 `docs/qoder-adapter-prompt.md`(本树不再保留副本)。

@@ -22,7 +22,7 @@ const ctx = {
 };
 await apply(ctx, {
   defaultTimeoutMs: 180000,
-  // 模型钉 zai/glm-5.3-flash:opencode-go key 已过期(等老徐换),zai 走 DSH_ZAI_API_KEY
+  // 模型钉 zai/glm-5.3-flash:opencode-go key 已过期(等管理员换),zai 走 DSH_ZAI_API_KEY
   // (2026-10-19 起 opencode.jsonc 加了 zai provider;跑本脚本前 export DSH_ZAI_API_KEY)
   harnesses: { "opencode-local": { type: "acp-stdio", command: "opencode", args: ["acp"], env: {}, model: "zai/glm-5.3-flash", description: "e2e 测试节点" } },
 });

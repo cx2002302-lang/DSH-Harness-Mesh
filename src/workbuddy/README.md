@@ -1,7 +1,7 @@
 # workbuddy 集成发布包
 
 > 版本:v1.0(2026-10-17)· 状态:**全绿验收**(跨机任务+UI 操控 10/10)
-> 适用:WinPC(CHINAMI-EKC4J2J)+ 主控机(master)的 workbuddy 接入全套
+> 适用:WinPC(node-win-01)+ 主控机(master)的 workbuddy 接入全套
 
 ## 这个包里有什么
 
@@ -41,3 +41,5 @@
 ## 变更
 
 - v1.0(2026-10-17):首个发布包。B 架构适配器 v5.2.1、wb-ui 行协议、10 工具验收、契约 hm-1、DEPLOY 部署说明
+
+> qoder 适配器的开场提示词文档已统一收敛到仓顶层 `docs/qoder-adapter-prompt.md`(本树不再保留副本)。

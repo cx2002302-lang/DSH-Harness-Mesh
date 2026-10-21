@@ -17,16 +17,16 @@ WinPC zcode  —— 本包主体:适配器 + plugs 条目 + 凭据(login)
 
 ```bash
 # 适配器放共享权威源(git 纪律:改完 commit)
-cp client/adapters/zcode-adapter.py  D:\AgentHome\DshData\wb-green\zcode-adapter.py
-cd D:\AgentHome\DshData\wb-green && git add -A && git commit -m "zcode-adapter v2 (-p engine)"
+cp client/adapters/zcode-adapter.py  <INSTALL_DIR>\zcode-adapter.py
+cd <INSTALL_DIR> && git add -A && git commit -m "zcode-adapter v2 (-p engine)"
 ```
 
 ### 1.2 插头条目(harnessd 实际加载的那份!)
 
 ```bash
-# ★关键:harnessd_win 无 --plugs 参数,默认加载 C:\wb-mesh\plugs.json(本地副本),
+# ★关键:harnessd_win 无 --plugs 参数,默认加载 <MESH_ROOT>\plugs.json(本地副本),
 #   不是共享那份——两份必须同步(2026-10-17 踩过:漂移导致插头时通时断)
-cp client\config\plugs.json  C:\wb-mesh\plugs.json        # 全量覆盖(以共享为权威源)
+cp client\config\plugs.json  <MESH_ROOT>\plugs.json        # 全量覆盖(以共享为权威源)
 # 然后重启 harnessd_win(plug.reload 有"载新不换旧"bug,重启最稳;keepalive ~70s 自拉)
 ```
 
@@ -35,12 +35,12 @@ cp client\config\plugs.json  C:\wb-mesh\plugs.json        # 全量覆盖(以共�
 ```bash
 curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/harness-mesh/nodes \
   -H 'Content-Type: application/json' -d '{"node":{
-    "name":"CHINAMI-zcode","type":"acp-plug",
+    "name":"node-win-01-zcode","type":"acp-plug",
     "address":"<tailnet-IP>:7080","plugId":"zcode-exec",
     "socks":"127.0.0.1:11090","description":"WinPC zcode(CLI-first,-p 引擎)"}}'
 ```
 
-### 1.4 凭据(老徐一次性)
+### 1.4 凭据(管理员一次性)
 
 WinPC 终端跑 `zcode login`(浏览器 OAuth)。**v2 适配器用 -p 路径,账号 login 即通**;app-server 会话路径的密钥问题二期再治。
 
@@ -48,13 +48,13 @@ WinPC 终端跑 `zcode login`(浏览器 OAuth)。**v2 适配器用 -p 路径,账
 
 ```bash
 # ① 基础 PONG(期望 succeeded + summary=PONG)
-harness_dispatch {"harness":"CHINAMI-zcode","prompt":"只回复 PONG","cwd":null}
+harness_dispatch {"harness":"node-win-01-zcode","prompt":"只回复 PONG","cwd":null}
 
 # ② 带产物任务(期望:汇报+共享上可验的产物)
-harness_dispatch {"harness":"CHINAMI-zcode","prompt":"在 D:\\AgentHome\\DshData\\wb-green\\zcode-e2e-ok.txt 创建文件,内容:zcode 实机测试通过 <当前时间>;并汇报模型名","cwd":null}
+harness_dispatch {"harness":"node-win-01-zcode","prompt":"在 <INSTALL_DIR>\\zcode-e2e-ok.txt 创建文件,内容:zcode 实机测试通过 <当前时间>;并汇报模型名","cwd":null}
 
 # ③ 开团(期望 all_done,与 opencode/workbuddy 混合编队)
-harness_team {"task":"一句话说明角色","members":[{"harness":"CHINAMI-zcode","role":"执行员"},{"harness":"opencode-local","role":"技术员"}]}
+harness_team {"task":"一句话说明角色","members":[{"harness":"node-win-01-zcode","role":"执行员"},{"harness":"opencode-local","role":"技术员"}]}
 ```
 
 **2026-10-17 22:08 实机基线**:① PONG 23s ② 产物任务 57s(共享文件独立验证通过)③ 开团 all_done。
@@ -63,9 +63,9 @@ harness_team {"task":"一句话说明角色","members":[{"harness":"CHINAMI-zcod
 
 | 症状 | 第一查 |
 |---|---|
-| `plug disabled:待接` | harnessd 加载的 C:\wb-mesh\plugs.json 是旧份→同步+重启(§1.2) |
+| `plug disabled:待接` | harnessd 加载的 <MESH_ROOT>\plugs.json 是旧份→同步+重启(§1.2) |
 | exit code=1(会话创建步) | app-server env 断供→确认适配器的 env 显式化(zcode-builtin.json 注入)在位 |
-| summary=`[zcode turn 失败] invalid-config` | 凭据未修→老徐 `zcode login`(§1.4) |
+| summary=`[zcode turn 失败] invalid-config` | 凭据未修→管理员 `zcode login`(§1.4) |
 | `unknown cmd` | 适配器旧版→覆盖最新版(每次 spawn 自动加载,不用重启) |
 | 任务慢(20-60s) | -p 引擎无流式,完整回复一次性返回,正常 |
 
@@ -73,7 +73,7 @@ harness_team {"task":"一句话说明角色","members":[{"harness":"CHINAMI-zcod
 
 - 适配器/plugs 改动走 wb-green git(与 workbuddy 共库,提交前 `git status`)
 - **永远只有一份绿模**(复制=双 guardian=今天修掉的 bug)
-- harnessd 的两份配置(共享 vs C:\wb-mesh)每次改 plugs 都要同步
+- harnessd 的两份配置(共享 vs <MESH_ROOT>)每次改 plugs 都要同步
 
 
 ---

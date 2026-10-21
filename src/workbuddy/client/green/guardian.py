@@ -9,12 +9,18 @@
      - harnessd.py              :插头协议服务端(监听 127.0.0.1:7080)
   3. Ctrl+C 全停;进程日志在本目录 guardian.log。
 
+现状(2026-10-21):日常看护已交给 keepalive.py(计划任务每 1 分钟,只管 ann-agent +
+mesh-guardian)。本脚本不在计划任务/启动项里,也不再由任何组件拉起,只保留
+"新节点首次入网 bootstrap" 这条用途 —— 别和 keepalive.py 同时跑,两边会互相杀。
+
 用法:  python guardian.py        (Windows 可双击;建议加 shell:startup 开机自启)
 """
+import ctypes
 import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 # Windows 无窗口化:子进程(ann-agent/harnessd)绝不弹控制台窗口
@@ -25,6 +31,11 @@ AGENT_DIR = os.path.join(HERE, "ann-data")
 AGENT_BIN = "ann-agent.exe" if os.name == "nt" else "./ann-agent"
 PYTHON = sys.executable
 
+# bootstrap 静默时的最长等待(原版硬编码 90s 且等不到也不放手,见 ensure_joined)
+BOOTSTRAP_WAIT = float(os.environ.get("GUARDIAN_BOOTSTRAP_WAIT", "90"))
+MUTEX_NAME = "Global\\wb_mesh_guardian_v1"
+ERROR_ALREADY_EXISTS = 183
+
 CHILDREN = [
     # (名字, 命令, 环境)
     ("ann-agent", [AGENT_BIN, "run"], {"ANN_AGENT_DATA_DIR": AGENT_DIR}),
@@ -33,18 +44,19 @@ CHILDREN = [
                   "--plugs", os.path.join(HERE, "plugs.json")], {}),
 ]
 
-# 首次入网参数:优先读同目录 bootstrap.env(新节点接入时按节点填写),无则用内置默认
+# 首次入网参数:优先读同目录 bootstrap.env(新节点接入时按节点填写),无则读环境变量。
+# 入网码/服务器不再写死在源码里(码 24h 有效、3 次额度,进了 git 就等于公开)。
 # bootstrap.env 示例:
 #   CODE=xxxxxxxx
 #   HOSTNAME=MY-PC
 #   TAGS=tag:agent
 #   FORWARD=7080=127.0.0.1:7080
 DEFAULTS = {
-    "CODE": "8abc4194",
-    "HOSTNAME": os.environ.get("COMPUTERNAME") or __import__("socket").gethostname(),
+    "CODE": os.environ.get("ANN_BOOTSTRAP_CODE", ""),
+    "HOSTNAME": os.environ.get("COMPUTERNAME") or socket.gethostname(),
     "TAGS": "tag:agent",
     "FORWARD": "7080=127.0.0.1:7080",
-    "SERVER": "http://<ANN_SERVER>:8444",
+    "SERVER": os.environ.get("ANN_BOOTSTRAP_SERVER", ""),
 }
 
 
@@ -60,14 +72,15 @@ def load_bootstrap_env():
     return cfg
 
 
-BOOTSTRAP_ARGS = None  # ensure_joined 时按 load_bootstrap_env() 组装
-
-
 def ensure_joined():
     """无 agent.json 时自动 bootstrap:等到 Tailnet IP 出现即收尾(然后由 run 模式接管)。"""
     if os.path.exists(os.path.join(AGENT_DIR, "agent.json")):
         return True
     cfg = load_bootstrap_env()
+    if not cfg.get("CODE") or not cfg.get("SERVER"):
+        log("入网失败:缺 CODE / SERVER —— 在 bootstrap.env 里填,或设环境变量 "
+            "ANN_BOOTSTRAP_CODE、ANN_BOOTSTRAP_SERVER")
+        return False
     args = [AGENT_BIN, "bootstrap",
             "--server=" + cfg["SERVER"],
             "--code=" + cfg["CODE"],
@@ -80,17 +93,28 @@ def ensure_joined():
     proc = subprocess.Popen(args, cwd=HERE, env=env, creationflags=NO_WINDOW,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     joined = False
-    deadline = time.time() + 90
-    buf = b""
+    lines = []
+    stop_pump = threading.Event()
+
+    def pump():
+        # bootstrap 一个字不吐时,readline 会一直阻塞:必须放线程里,主线程只等到 deadline
+        try:
+            for raw in iter(proc.stdout.readline, b""):
+                if stop_pump.is_set():
+                    return
+                lines.append(raw.decode("utf-8", errors="replace").rstrip())
+        except Exception:
+            pass
+
+    t = threading.Thread(target=pump, daemon=True)
+    t.start()
+    deadline = time.time() + BOOTSTRAP_WAIT
+    seen = 0
     try:
-        while time.time() < deadline:
-            chunk = proc.stdout.read(4096)
-            if not chunk:
-                break
-            buf += chunk
-            while b"\n" in buf:
-                raw, _, buf = buf.partition(b"\n")
-                line = raw.decode("utf-8", errors="replace").rstrip()
+        while time.time() < deadline and not joined:
+            while seen < len(lines):
+                line = lines[seen]
+                seen += 1
                 if line:
                     log("bootstrap| " + line[:160])
                 if "Tailnet IP" in line:
@@ -98,12 +122,12 @@ def ensure_joined():
                     break
             if joined:
                 break
+            time.sleep(0.2)
+        if not joined:
+            log(f"bootstrap {BOOTSTRAP_WAIT:.0f}s 内没等到 Tailnet IP(已读到 {seen} 行),放手")
+        stop_pump.set()
     finally:
-        try:
-            proc.terminate()
-            proc.wait(timeout=5)
-        except Exception:
-            proc.kill()
+        kill_tree(proc, "bootstrap 收尾")
     if joined and os.path.exists(os.path.join(AGENT_DIR, "agent.json")):
         log("入网成功,配置已保存,进入常驻看护")
         return True
@@ -153,7 +177,58 @@ class _ExternalProc:
         return None
 
 
+def kill_tree(proc, why=""):
+    """收树终止。裸 terminate()=TerminateProcess,只杀父,ann-agent/harnessd 的子进程留孤儿。"""
+    if proc is None or getattr(proc, "pid", None) is None:
+        return
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True, creationflags=NO_WINDOW, timeout=15)
+        except Exception as e:
+            log(f"taskkill pid={proc.pid} 失败({why}): {e}")
+    try:
+        proc.terminate()
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+
+
+def acquire_singleton_lock():
+    """命名 Mutex 单例锁。返回句柄(保住别释放)或 None(已有一个 guardian 在跑)。
+
+    没有这把锁,"开机触发 + 手动双击"就会跑出两份 guardian:两份各拉一个 ann-agent
+    抢同一个 ann-data/同一条隧道,再被 keepalive.py 的"重复则杀多余"轮流回收。
+    """
+    if os.name != "nt":
+        return object()
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = ctypes.c_void_p
+    k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
+    handle = k32.CreateMutexW(None, False, MUTEX_NAME)
+    err = ctypes.get_last_error()
+    if err == ERROR_ALREADY_EXISTS:
+        return None
+    if not handle:
+        # Global\ 命名空间要 SeCreateGlobalPrivilege,拿不到时退回本机 Local\
+        handle = k32.CreateMutexW(None, False, "Local\\wb_mesh_guardian_v1")
+        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+            return None
+        log(f"[警告] 单例锁创建失败(err={err}),本次尽力而为")
+    return handle
+
+
 def main():
+    singleton = acquire_singleton_lock()
+    if singleton is None:
+        log(f"已有一个 guardian 在跑(锁 {MUTEX_NAME} 已存在),本次退出,不重复拉起")
+        sys.exit(0)
     if not ensure_joined():
         sys.exit(1)
     log(f"guardian 启动 pid={os.getpid()} dir={HERE}")
@@ -188,16 +263,7 @@ def main():
     except KeyboardInterrupt:
         log("Ctrl+C,停止所有子进程")
         for name, p in procs.items():
-            try:
-                p.terminate()
-            except Exception:
-                pass
-        time.sleep(1)
-        for name, p in procs.items():
-            try:
-                p.kill()
-            except Exception:
-                pass
+            kill_tree(p, f"Ctrl+C {name}")
 
 
 if __name__ == "__main__":

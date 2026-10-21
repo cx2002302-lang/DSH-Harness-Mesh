@@ -5,7 +5,7 @@
 ## 两个 harnessd 侧关键配置(2026-10-17 实测)
 
 1. **no_auto_port: true(必须)**:harnessd_win 默认给所有插头追加 --port;kimi 不认 → 613ms 自杀。已加插头级开关(10f967c)
-2. **cwd 必须合法**:kimi 的 ACP 拒 cwd:null(-32602),节点表配 C:\wb-mesh
+2. **cwd 必须合法**:kimi 的 ACP 拒 cwd:null(-32602),节点表配 <MESH_ROOT>
 
 ## 凭据
 

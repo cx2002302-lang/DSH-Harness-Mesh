@@ -10,7 +10,7 @@
 | 客户端 | DSH 主控侧、未来的 zcode / kimicode / opencode 等，**共用同一插头协议** |
 | 隔离 | 不同 harness 的插头互不干扰；一个挂了不影响其他 |
 | 扩展 | 接新 harness = **加一条 plug 配置 + 一个 adapter 文件**，不改协议、不改 harnessd 主逻辑 |
-| 兼容 | 现有 `plugId=CHINAMI-EKC4J2J-workbuddy` 必须继续可用（DSH 在用，不能断） |
+| 兼容 | 现有 `plugId=node-win-01-workbuddy` 必须继续可用（DSH 在用，不能断） |
 
 ## 2. 核心概念
 
@@ -38,7 +38,7 @@ harness（能力域，如 workbuddy / zcode / opencode）
     "kind": "acp",
     "command": "<pythonw.exe>",
     "args": ["<wb-gateway-adapter.py>"],
-    "aliases": ["CHINAMI-EKC4J2J-workbuddy"],
+    "aliases": ["node-win-01-workbuddy"],
     "enabled": true,
     "env": {...}
   },
@@ -80,7 +80,7 @@ harness（能力域，如 workbuddy / zcode / opencode）
 | `task.open` 命中的 plug `enabled=false` | 返回明确错误 `plug disabled: <note>`（不 spawn，不静默失败） |
 | `task.open` 命中的 plug `command=null` | 返回 `plug not configured: <note>` |
 
-**兼容策略**：现有 `CHINAMI-EKC4J2J-workbuddy` 放进 `aliases`，DSH 侧零改动。
+**兼容策略**：现有 `node-win-01-workbuddy` 放进 `aliases`，DSH 侧零改动。
 
 ## 5. 接一个新 harness 的步骤（SOP）
 

@@ -14,7 +14,7 @@
 │ ann-ctrl(控制面,:8443) + ann-agent-208(SOCKS5 :11090)       │
 └──────────────────┬ ANN 隧道(WireGuard 100.64/10)────────────┘
                    │ 拨 <tailnet-ip>(经本机 SOCKS5)
-┌──────────────────┴──── WinPC(CHINAMI-EKC4J2J)──────────────┐
+┌──────────────────┴──── WinPC(node-win-01)──────────────┐
 │ ann-agent.exe(绿模入网,--forward 7080=127.0.0.1:7080)        │
 │ harnessd_win(:7080,插头服务端,按 plugs.json spawn)           │
 │  ├─ workbuddy-exec(acp)→ wb-gateway-adapter.py → GUI Gateway │
@@ -22,13 +22,13 @@
 │ WorkBuddy GUI(活登录态;Gateway 动态端口;模型 DeepSeek-V4.1)  │
 │ keepalive.py(1 分钟巡检)+ mesh-guardian(三哨兵)              │
 └─────────────────────────────────────────────────────────────┘
-共享(SMB DshData)= 客户端运行权威源 + 双边数据总线
+共享(SMB <MESH_ROOT>)= 客户端运行权威源 + 双边数据总线
 ```
 
 **前置条件**(缺一不可):
 - [ ] 208:DSH 服务在跑(`systemctl --user is-active dreamx`),ANN 控制面在跑
 - [ ] WinPC:WorkBuddy GUI **已登录**(20 天有效,`wb_ui_status` 可验)
-- [ ] WinPC:能访问共享 `\\192.168.9.100\DshData`
+- [ ] WinPC:能访问共享 `\\<LAN-IP>\<MESH_ROOT>`
 - [ ] 本包(server+client+docs)已就位
 
 ## 1. 全新部署(三站,按序)
@@ -77,7 +77,7 @@ ann-ctrl node list --data-dir=$HOME/.local/share/ann-ctrl | grep <winpc主机名
 #    ann-agent.exe / harnessd_win.py / keepalive.py / 启动绿模.vbs
 
 # 2) 适配器+配置到位(client/adapters/ + client/config/plugs.json)
-#    共享即运行副本的做法:直接放 DshData/wb-green/,harnessd 从共享加载
+#    共享即运行副本的做法:直接放 <INSTALL_DIR>/,harnessd 从共享加载
 
 # 3) 起 harnessd_win(:7080)并确认保活
 #    keepalive 已设 1 分钟巡检;确认:
@@ -156,7 +156,7 @@ wb_ui_status {}
 |---|---|
 | dispatch 卡 queued 30s 失败 | 对端 harnessd 半死→重试;持续则看 keepalive 日志 |
 | `SOCKS5 拨号超时` | WG 隧道抖动→等 1 分钟自愈;持续看 ann-agent(DERP) |
-| `未发现 gateway` | WorkBuddy GUI 没开→让老徐开 GUI(gateway 是 GUI 本体) |
+| `未发现 gateway` | WorkBuddy GUI 没开→让管理员开 GUI(gateway 是 GUI 本体) |
 | summary 是 429 | 模型配额→等重置或 `wb_ui_model` 切换模型 |
 | `unknown cmd` | 适配器版本旧→覆盖最新版(每次 spawn 自动加载) |
 | wb_ui_* 返回 NOT_FOUND | 会话不存在或 CDP 撞用户操作→工具已带 5s 重试;仍失败核对 sessions 标题 |
@@ -174,10 +174,10 @@ wb_ui_status {}
 
 ## 7. 客户端程序 git 纪律(多 harness 共享资产)
 
-`DshData/wb-green/` 是 git 仓库(2026-10-17 初始化,47 文件)。**所有客户端侧改动(plugs.json/适配器/脚本/文档)改完必须 commit**:
+`<INSTALL_DIR>/` 是 git 仓库(2026-10-17 初始化,47 文件)。**所有客户端侧改动(plugs.json/适配器/脚本/文档)改完必须 commit**:
 
 ```bash
-cd DshData/wb-green
+cd <INSTALL_DIR>
 git status          # 看改了啥
 git add -A && git commit -m "<改了什么,例:zcode-exec plug added>"
 git log --oneline   # 看历史
@@ -189,6 +189,6 @@ git log --oneline   # 看历史
 
 ## 8. 联系人/职责
 
-- **老徐**:GUI 登录态唯一人工门(20 天一次)、CDP 冲突时的操作避让
+- **管理员**:GUI 登录态唯一人工门(20 天一次)、CDP 冲突时的操作避让
 - **workbuddy 侧**:适配器/wb-ui/harnessd_win/保活的开发与排错
 - **主控侧(我)**:插件/节点表/工具/监测/对齐/发布包
