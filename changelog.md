@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.2 — 2026-10-21
+
+- wb-gateway 迁移官方 daemon 模式:`codebuddy daemon start --port 8080`(回环默认免密,生产建议显式密码);WorkBuddy 5.8.3 起 GUI 不再自动拉起 gateway,旧 5845 动态端口方式弃用;DEPLOY/README gateway 一节改写
+- wb-gateway-adapter 三修复(同步自 wb-green 生产版):①所有 gateway 请求带 `X-CodeBuddy-Request: 1` 安全头 ②create_run `type=message`(daemon 2.171 只执行 type=message,text 会被 accepted 但永不执行)③SSE 两阶段超时——建连长超时(`GATEWAY_SSE_CONNECT`,默认 15s)、连上后切读轮询(`GATEWAY_SSE_POLL`,默认 2s)+ 整轮上限(`GATEWAY_RUN_MAX_WAIT`,默认 1800s),沉默 run 不再拖死取消
+- 适配器会话状态改按轮(turn)隔离:同会话第二轮起 run_id/终态/结果文本不互相覆盖(cancel 杀错对象、result 一次性标志两处实踩修复)
+
 ## v1.3.1 — 2026-10-21
 
 - harnessd f312dea:attach-EOF 宽限(plug.env HM_ATTACH_GRACE_S,默认 0=断开即收树)+ 交棒吞帧修复(_stream_out 单线程按当前连接投递)+ 收口统一(先杀树后关管;广播 reason=attach_lost|pipe_closed)

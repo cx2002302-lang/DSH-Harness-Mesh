@@ -21,7 +21,7 @@
 │  └──┬─────────┬─────────┬─────────┬─────────┘   │
 │     ▼         ▼         ▼         ▼             │
 │ workbuddy   zcode    kimicode   opencode        │
-│ (GUI GW)   (CLI)     (native    (native         │
+│ (daemon GW) (CLI)     (native    (native         │
 │                        ACP)       ACP)          │
 └─────────────────────────────────────────────────┘
 ```
@@ -36,7 +36,7 @@ The plug protocol (length-framed JSON-RPC + raw byte pipes) drives four complete
 
 | Node | Form | Notes |
 |---|---|---|
-| workbuddy | GUI Gateway (REST bridge) | + UI control tools (10) |
+| workbuddy | Gateway daemon (REST bridge) | + UI control tools (10) |
 | zcode | CLI-first, thin adapter | -p engine, auth-safe |
 | kimicode | Native ACP CLI | zero adapter |
 | opencode | Native ACP CLI | zero adapter |
@@ -79,7 +79,7 @@ One board, six live shots — @ summon menu, dispatch console, human-in-the-loop
 **This repo ships source only — no prebuilt binaries.** Clone, build on your machines, go.
 
 ```
-src/workbuddy/    GUI Gateway B adapter + 10 UI-control tools
+src/workbuddy/    Gateway daemon adapter + 10 UI-control tools
 src/zcode/        CLI-first thin adapter (-p engine)
 src/kimicode/     native ACP, zero adapter
 src/opencode/     native ACP, zero adapter

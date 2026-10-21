@@ -27,6 +27,7 @@ import json
 import os
 import queue
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -38,7 +39,10 @@ VERSION = "5.2.1"
 CREATE_NO_WINDOW = 0x08000000  # pythonw 下 subprocess 默认会弹控制台窗口
 
 # 共享文件日志(DSH 侧也能读):生命周期全记录,定位"进程为什么死"
-FILE_LOG = os.environ.get("ADAPTER_LOG") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "v5-adapter.log")  # 缺省=脚本同目录;ADAPTER_LOG 可指到任意路径
+# 注意 plugs.json 里 ADAPTER_LOG="1" 是"顺手打 stderr"的开关，不是路径；这里只认路径 env，
+# 否则日志会写到当前目录下一个名叫 "1" 的文件。
+FILE_LOG = os.environ.get("GW_FILE_LOG") or os.environ.get("ADAPTER_LOG") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "v5-adapter.log")  # 缺省=脚本同目录;env 可指到任意路径
 
 
 def flog(msg):
@@ -119,7 +123,8 @@ def discover_gateway(cfg_url=None):
         if pw:
             try:
                 req = urllib.request.Request(base + "/api/v1/status",
-                                             headers={"Authorization": f"Bearer {pw}"})
+                                             headers={"Authorization": f"Bearer {pw}",
+                                                      "X-CodeBuddy-Request": "1"})
                 with urllib.request.urlopen(req, timeout=5) as r:
                     d = json.loads(r.read().decode("utf-8", "replace"))
                     busy = bool((d.get("data") or d).get("busy"))
@@ -251,7 +256,7 @@ class RunsClient:
         self.password = password
 
     def _req(self, method, path, body=None, timeout=120):
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "X-CodeBuddy-Request": "1"}
         if self.password:
             headers["Authorization"] = f"Bearer {self.password}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -263,7 +268,7 @@ class RunsClient:
     def create_run(self, text, cwd=None, timeout_ms=1800000):
         rid = f"run-{os.getpid()}-{int(time.time()*1000)}"
         body = {
-            "id": rid, "type": "text", "version": "1.0",
+            "id": rid, "type": "message", "version": "1.0",  # daemon 2.171 只执行 type=message;text 会 accepted 但永远不跑(实测)
             "source": {"platform": "generic", "sender": {"id": "harness-mesh"},
                        "conversation": {"id": rid, "type": "direct"}},
             "payload": {"text": text},
@@ -275,17 +280,39 @@ class RunsClient:
         return (r.get("data") or r).get("runId")
 
     def stream_run(self, run_id, on_event, stop_flag):
-        """接 run SSE 流,事件回调 on_event(dict);stop_flag 置位时返回"""
+        """接 run SSE 流,事件回调 on_event(dict);stop_flag 置位时返回。
+
+        socket 超时是"单次读"的上限而不是整轮上限:沉默的 run 不能把取消拖到超时才生效,
+        所以读超时后回来重查 stop_flag。整轮上限另用 GATEWAY_RUN_MAX_WAIT 兜。
+        """
         req = urllib.request.Request(f"{self.base}/api/v1/runs/{run_id}/stream", method="GET",
                                      headers={"Accept": "text/event-stream",
+                                              "X-CodeBuddy-Request": "1",
                                               "Authorization": f"Bearer {self.password}"})
+        poll = float(os.environ.get("GATEWAY_SSE_POLL", "2"))
+        connect_timeout = float(os.environ.get("GATEWAY_SSE_CONNECT", "15"))
+        max_wait = float(os.environ.get("GATEWAY_RUN_MAX_WAIT", "1800"))
+        deadline = time.time() + max_wait
         n_events = 0
         try:
-            flog(f"SSE 连接 run={run_id}")
-            with urllib.request.urlopen(req, timeout=300) as r:
+            flog(f"SSE 连接 run={run_id} 建连超时={connect_timeout}s 读轮询={poll}s 整轮上限={max_wait}s")
+            # urlopen 的 timeout 同时管建连+等响应头,而 gateway 的 SSE 端点要等第一个事件才发头,
+            # 所以建连阶段要用长超时;连上后再把底层 socket 切成读轮询 poll。
+            with urllib.request.urlopen(req, timeout=connect_timeout) as r:
+                try:
+                    sock = r.fp.raw._sock  # http 连接可行;https 失败也无所谓(下面 except 兜)
+                    sock.settimeout(poll)
+                except Exception:
+                    pass
                 buf = b""
                 while not stop_flag.is_set():
-                    chunk = r.read1(4096) if hasattr(r, "read1") else r.read(4096)
+                    if time.time() > deadline:
+                        flog(f"SSE 超过 {max_wait}s 未收终态,停接 run={run_id}")
+                        break
+                    try:
+                        chunk = r.read1(4096) if hasattr(r, "read1") else r.read(4096)
+                    except (TimeoutError, socket.timeout):
+                        continue
                     if not chunk:
                         break
                     buf += chunk
@@ -303,6 +330,8 @@ class RunsClient:
             flog(f"SSE HTTPError {e.code} run={run_id}(404=run已完成流销毁)")
             if e.code == 404:
                 return  # run 已完成,流销毁(正常)
+        except (TimeoutError, socket.timeout) as e:
+            flog(f"SSE 连接/建流超时 run={run_id}: {e}")
         except Exception as e:
             flog(f"SSE 异常 run={run_id}: {type(e).__name__}: {e}")
 
@@ -384,7 +413,7 @@ class AcpServer:
     def __init__(self, client, state=None):
         self.gw = client
         self.state = state          # 后台发现状态(ready Event + base/password)
-        self.sessions = {}      # sessionId -> {run_id, cwd, stop_flag, done, stop, error}
+        self.sessions = {}      # sessionId -> {cwd, turn};turn=在飞那一轮的状态(空闲时 None)
         self.seq = 0
         self._io_lock = threading.Lock()
         self.last_active = time.time()
@@ -406,7 +435,7 @@ class AcpServer:
         """空闲超时自退:harnessd 不关 stdin 时,适配器自己退出,避免进程堆积"""
         while True:
             time.sleep(60)
-            busy = any(not st.get("done") for st in self.sessions.values())
+            busy = any(st.get("turn") for st in self.sessions.values())
             if busy:
                 self.last_active = time.time()
                 continue
@@ -434,6 +463,11 @@ class AcpServer:
                        "messageId": f"m-{session_id}",
                        "content": {"type": "text", "text": text}}}})
 
+    def _turn(self, session_id):
+        """当前在飞的那一轮(没有就 None)。终态/结果文本都挂在轮上,不挂会话。"""
+        st = self.sessions.get(session_id)
+        return (st or {}).get("turn")
+
     def _on_run_event(self, session_id, ev):
         """run SSE 事件 → session/update(实测格式: {status, content:{markdown}, replyTo, agent})"""
         if not isinstance(ev, dict):
@@ -441,24 +475,27 @@ class AcpServer:
         status = ev.get("status") or ev.get("type") or ev.get("event") or ""
         # 终态检测(实测 status: completed/failed)
         if status in ("completed", "done", "finished", "succeeded", "run_completed"):
-            st = self.sessions.get(session_id)
-            if st:
-                st["done"], st["stop"] = True, "end_turn"
+            turn = self._turn(session_id)
+            if turn:
+                # 已定终态(比如刚被 cancel 置成 cancelled)就不覆盖,
+                # 否则主控取消过的轮会收到一个假的 end_turn
+                if not turn.get("done"):
+                    turn["done"], turn["stop"] = True, "end_turn"
                 # 结果文本(content.markdown 实测)
                 content = ev.get("content")
                 if isinstance(content, dict):
                     text = content.get("markdown") or content.get("text") or content.get("content")
                     if isinstance(text, str) and text.strip():
-                        st["result_text"] = text
+                        turn["result_text"] = text
                 elif isinstance(content, str) and content.strip():
-                    st["result_text"] = content
+                    turn["result_text"] = content
             return
         if status in ("failed", "error", "cancelled"):
-            st = self.sessions.get(session_id)
-            if st:
-                st["done"] = True
-                st["stop"] = "cancelled" if status == "cancelled" else "refusal"
-                st["error"] = ev.get("error") or ev.get("message") or f"run {status}"
+            turn = self._turn(session_id)
+            if turn and not turn.get("done"):
+                turn["done"] = True
+                turn["stop"] = "cancelled" if status == "cancelled" else "refusal"
+                turn["error"] = ev.get("error") or ev.get("message") or f"run {status}"
             return
         # 过程文本(多种字段名兼容)
         text = ev.get("text") or ev.get("message") or ev.get("delta")
@@ -492,8 +529,7 @@ class AcpServer:
                 self.seq += 1
                 sid = f"s-{os.getpid()}-{self.seq}"
             cwd = params.get("cwd") or os.getcwd()
-            self.sessions[sid] = {"run_id": None, "cwd": cwd, "stop_flag": threading.Event(),
-                                  "done": False, "stop": "end_turn"}
+            self.sessions[sid] = {"cwd": cwd, "turn": None}
             flog(f"session/new {sid} cwd={cwd}")
             result = {"sessionId": sid}
             models = load_models()  # 模型清单非空才上报 configOptions(opencode 方言 select)
@@ -513,39 +549,52 @@ class AcpServer:
             if not st:
                 self._error(mid, -32001, f"unknown session: {sid}")
                 return
+            running = st.get("turn")
+            if running and not running.get("done"):
+                self._error(mid, -32000, "session busy: 上一 prompt 仍在执行")
+                return
             text = "".join(b.get("text", "") for b in params.get("prompt", [])
                            if isinstance(b, dict) and b.get("type") == "text")
+            # 每轮一份独立状态:run_id/终态/结果文本都挂在轮上。挂会话会导致
+            # 后一轮覆盖前一轮的 run_id(cancel 杀错对象)、result_sent 变一次性标志
+            # (同会话第二轮起最终回复再也不回传)
+            turn = {"run_id": None, "stop_flag": threading.Event(), "done": False,
+                    "stop": None, "result_text": None, "result_sent": False, "error": None}
+            st["turn"] = turn
             try:
-                self._ensure_gateway()   # 只有 prompt 才等 gateway(initialize/new 零依赖)
-                run_id = self.gw.create_run(text, cwd=st.get("cwd"))
-            except Exception as e:
-                flog(f"prompt 前置失败: {type(e).__name__}: {e}")
-                self._error(mid, -32000, f"create_run failed: {e}")
-                return
-            st["run_id"] = run_id
-            flog(f"session/prompt {sid} create_run OK run={run_id} text={text[:50]!r}")
-            # 同步接流(零竞态):边收边发 update,终态即返回。
-            # cancel 走 DSH 侧强制断流兜底(harnessd 模型:一任务一管道)
-            self.gw.stream_run(run_id, lambda ev: self._on_run_event(sid, ev), st["stop_flag"])
-            if not st.get("done"):
-                # 流关闭但没见终态事件(极短任务竞态):兜底按完成处理
-                st["done"], st["stop"] = True, "end_turn"
-                flog("stream 关闭未见终态,兜底 end_turn")
-            if st.get("result_text") and not st.get("result_sent"):
-                st["result_sent"] = True
-                self._update(sid, st["result_text"])
-            if st.get("error"):
-                self._update(sid, f"[adapter] {st['error']}")
-            flog(f"prompt 返回 stopReason={st.get('stop')} error={st.get('error')}")
-            self._result(mid, {"stopReason": st.get("stop", "end_turn")})
+                try:
+                    self._ensure_gateway()   # 只有 prompt 才等 gateway(initialize/new 零依赖)
+                    run_id = self.gw.create_run(text, cwd=st.get("cwd"))
+                except Exception as e:
+                    flog(f"prompt 前置失败: {type(e).__name__}: {e}")
+                    self._error(mid, -32000, f"create_run failed: {e}")
+                    return
+                turn["run_id"] = run_id
+                flog(f"session/prompt {sid} create_run OK run={run_id} text={text[:50]!r}")
+                self.gw.stream_run(run_id, lambda ev: self._on_run_event(sid, ev), turn["stop_flag"])
+                if not turn.get("done"):
+                    # 流关闭但没见终态事件(极短任务竞态):兜底按完成处理
+                    turn["done"], turn["stop"] = True, "end_turn"
+                    flog("stream 关闭未见终态,兜底 end_turn")
+                if turn.get("result_text") and not turn.get("result_sent"):
+                    turn["result_sent"] = True
+                    self._update(sid, turn["result_text"])
+                if turn.get("error"):
+                    self._update(sid, f"[adapter] {turn['error']}")
+                flog(f"prompt 返回 stopReason={turn.get('stop')} error={turn.get('error')}")
+                self._result(mid, {"stopReason": turn.get("stop") or "end_turn"})
+            finally:
+                turn["done"] = True      # 闸不放就成了永久的 "session busy"
+                st["turn"] = None
         elif method == "session/cancel":
             sid = params.get("sessionId")
-            st = self.sessions.get(sid)
-            if st:
-                if st.get("run_id"):
-                    self.gw.cancel_run(st["run_id"])
-                st["stop_flag"].set()
-                st["done"], st["stop"] = True, "cancelled"
+            turn = (self.sessions.get(sid) or {}).get("turn")
+            if turn:
+                if turn.get("run_id"):
+                    self.gw.cancel_run(turn["run_id"])
+                turn["stop_flag"].set()
+                if not turn.get("done"):
+                    turn["done"], turn["stop"] = True, "cancelled"
             # notification 无 id 不回
         elif method == "session/set_model":
             sid = params.get("sessionId")

@@ -17,13 +17,33 @@
 ┌──────────────────┴──── WinPC(node-win-01)──────────────┐
 │ ann-agent.exe(绿模入网,--forward 7080=127.0.0.1:7080)        │
 │ harnessd_win(:7080,插头服务端,按 plugs.json spawn)           │
-│  ├─ workbuddy-exec(acp)→ wb-gateway-adapter.py → GUI Gateway │
+│  ├─ workbuddy-exec(acp)→ wb-gateway-adapter.py → Gateway daemon │
 │  └─ workbuddy-ui(line)→ wb-ui.js → CDP(9222)                │
-│ WorkBuddy GUI(活登录态;Gateway 动态端口;模型 DeepSeek-V4.1)  │
+│ WorkBuddy GUI(活登录态)+ Gateway=官方 daemon(见 §0.1)       │
 │ keepalive.py(1 分钟巡检)+ mesh-guardian(三哨兵)              │
 └─────────────────────────────────────────────────────────────┘
 共享(SMB <MESH_ROOT>)= 客户端运行权威源 + 双边数据总线
 ```
+
+### 0.1 Gateway 运行方式(v1.3.2 起:官方 daemon)
+
+WorkBuddy Gateway 以 **官方 daemon 方式** 运行(v1.3.2 起),不再依赖 GUI 拉起:
+
+```bash
+codebuddy daemon start --port 8080
+```
+
+- 回环监听(127.0.0.1)默认**免密**;生产环境建议显式设密(`--password <密码>`)。
+- plugs.json 对应插头的 env 配:
+
+```json
+{"env": {"GATEWAY_URL": "http://127.0.0.1:8080", "GATEWAY_AUTH": "<密码>"}}
+```
+
+- **弃用**:旧版 WorkBuddy GUI 内置 Gateway(5845 动态端口)方式——WorkBuddy 5.8.3
+  起 GUI **不再随应用自动拉起 gateway**,不要按动态端口发现的老路部署。
+- 备选:适配器保留「PEB 读 serve 实例 env 的 `CODEBUDDY_GATEWAY_PASSWORD`」自动取密
+  路径(不硬编码不落盘);显式配 `GATEWAY_AUTH` 时走 env,PEB 只是兜底。
 
 **前置条件**(缺一不可):
 - [ ] 208:DSH 服务在跑(`systemctl --user is-active dreamx`),ANN 控制面在跑
@@ -97,7 +117,7 @@ curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/harness-mesh/nodes \
     "name":"<计算机名>-workbuddy","type":"acp-plug",
     "address":"<tailnet-IP>:7080","plugId":"workbuddy-exec",
     "socks":"127.0.0.1:11090",
-    "description":"WinPC workbuddy(GUI Gateway B 架构)"}}'
+    "description":"WinPC workbuddy(daemon Gateway 架构)"}}'
 
 # ui 插头(UI 操控用)
 curl -s -b /tmp/jar -X POST http://127.0.0.1:80/api/harness-mesh/nodes \
@@ -156,7 +176,7 @@ wb_ui_status {}
 |---|---|
 | dispatch 卡 queued 30s 失败 | 对端 harnessd 半死→重试;持续则看 keepalive 日志 |
 | `SOCKS5 拨号超时` | WG 隧道抖动→等 1 分钟自愈;持续看 ann-agent(DERP) |
-| `未发现 gateway` | WorkBuddy GUI 没开→让管理员开 GUI(gateway 是 GUI 本体) |
+| `未发现 gateway` | codebuddy daemon 没起→`codebuddy daemon start --port 8080`;或 plugs.json 漏配 `GATEWAY_URL` |
 | summary 是 429 | 模型配额→等重置或 `wb_ui_model` 切换模型 |
 | `unknown cmd` | 适配器版本旧→覆盖最新版(每次 spawn 自动加载) |
 | wb_ui_* 返回 NOT_FOUND | 会话不存在或 CDP 撞用户操作→工具已带 5s 重试;仍失败核对 sessions 标题 |
