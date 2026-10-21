@@ -29,7 +29,10 @@ HM_NODE_NAME 覆盖）类型是 `acp-plug`，它不是简单的
 用法：
   python <HM_BASE_DIR>/harnessd_win.py [--host 0.0.0.0] [--port 7080]
 环境变量：
-  ANN_NODE_IP   自报的 ANN 绿模地址（部署时提供,形如 <ANN-NODE-IP>）
+  ANN_NODE_IP   自报的 ANN 绿模地址（形如 <ANN-NODE-IP>）
+  HM_BASE_DIR   运行时根目录（plugs.json / logs / 默认 cwd）
+  HM_ATTACH_GRACE_S  attach 断开后等主控回连的秒数，默认 0=断开即收树；
+                     plugs.json 里某个 plug 的 env 单独写这份就按它的值走
 """
 import argparse
 import json
@@ -45,7 +48,7 @@ import threading
 import time
 
 # 运行时根目录：plugs.json、logs、默认 cwd、cbcli 都从这里派生。
-# 运行目录钉死在单一固定路径时，影子实例(换端口做验证)会把自己的日志写进生产同一份
+# 写死固定目录时，影子实例(换端口做验证)会把自己的日志写进生产同一份
 # harnessd_win.log，排查时两条时间线混在一起；给个 env 覆盖，验证和发布都能用。
 DEFAULT_CWD = os.environ.get("HM_BASE_DIR", os.getcwd())  # 缺省=当前运行目录;部署时用 HM_BASE_DIR 指定
 PLUGS_FILE = os.path.join(DEFAULT_CWD, "plugs.json")
@@ -111,9 +114,11 @@ CREATE_NO_WINDOW = 0x08000000
 MAX_FRAME = 8 * 1024 * 1024
 
 LOCK = threading.Lock()
-STREAMS = {}          # streamId -> {"proc":..., "conn":..., "plug_id":...}
+STREAMS = {}          # streamId -> {"proc","out","out_started","plug_id","gen","grace","finishing"}
 SEQ = {"n": 0}
 CTL_CONNS = []        # 活跃控制连接(用于 task.exit 事件回传)
+# attach 断开后给主控多久回连。默认 0 = 断开即收树(老行为)，要宽限在 plugs.json 的 plug.env 里写。
+DEFAULT_ATTACH_GRACE_S = float(os.environ.get("HM_ATTACH_GRACE_S", "0") or 0)
 
 # 默认 plugs：即使 mesh 侧 plugId 与本地不完全一致，也有兜底。
 # 节点名按"计算机名+workbuddy"自动取(mesh 侧统一的命名规约)，HM_NODE_NAME 可覆盖；
@@ -198,7 +203,7 @@ def find_plug(plugs, plug_id):
 # ---------------- 自报 ----------------
 def _lan_addr():
     """UDP connect 技巧取本机内网 IPv4(不发包，只让内核挑一条路由)。
-    探测目标原来钉死一个具体内网 IP:80——换台没有这个网段的机器，挑不到路由就静默
+    探测目标原来钉死某内网地址——换台没有这个网段的机器，挑不到路由就静默
     变 None，主控按 lan_addr 找节点找不到，现场还没法改。LAN_PROBE_IP/PORT 可指到
     本地可达地址；那条也挑不出来时再兜一发公网 DNS(同样只是挑路由)。"""
     host = os.environ.get("LAN_PROBE_IP", "192.0.2.1")  # 缺省=RFC5737 文档占位地址;部署时用 LAN_PROBE_IP 指到局域网可达地址
@@ -258,62 +263,156 @@ def kill_tree(proc, why=""):
             pass
 
 
-def _pipe(conn, proc, stream_id):
-    """attach 之后：裸字节双向透传。"""
+def _bye(conn):
+    """关一条数据连接：先 shutdown 再 close。
 
-    def pump_in():
+    Windows 下裸 close() 打断不了另一个线程正卡着的 recv(必修③的另一半就是它)。
+    交棒时旧连接、收口时的当前连接、task.close 时挂着的连接都走这里，
+    否则每交棒一次就泄一根 daemon 线程 + 一个 socket——harnessd 是按天算 uptime 的。
+    """
+    if conn is None:
+        return
+    try:
+        conn.shutdown(socket.SHUT_RDWR)
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
+def _finish(stream_id, gen):
+    """数据连接断开的收口。
+
+    以前谁先结束都由 _pipe 末尾一刀切：主控侧刷新/重启把 attach 连接断了，任务进程还在跑，
+    树就被当场收掉，活干到一半没了(实测 2026-10-21 s-0012 那类)。现在改成：宽限期内等主控
+    重新 attach，宽限里没人来(或宽限为 0)才收树 + 广播 task.exit。
+    同一个 stream 只收口一次(两个泵线程都会打进来)，靠 gen 判断是不是已被新 attach 接管。
+    """
+    with LOCK:
+        st = STREAMS.get(stream_id)
+        if not st or st.get("gen") != gen or st.get("finishing"):
+            return
+        st["finishing"] = True
+        proc = st["proc"]
+        grace = st.get("grace", DEFAULT_ATTACH_GRACE_S)
+    if grace > 0 and proc.poll() is None:
+        log(f"attach 断开 {stream_id}，进入 {grace:g}s 宽限（任务进程仍在跑，等重连）")
+        deadline = time.time() + grace
+        while time.time() < deadline:
+            time.sleep(min(1.0, max(0.05, deadline - time.time())))
+            with LOCK:
+                cur = STREAMS.get(stream_id)
+                if not cur or cur.get("gen") != gen:
+                    return          # 新 attach 接管，或 task.close 已收走
+            if proc.poll() is not None:
+                break               # 任务自己跑完了，不必等满宽限
+    with LOCK:
+        cur = STREAMS.get(stream_id)
+        if not cur or cur.get("gen") != gen:
+            return                  # 宽限最后一刻被重新 attach 接管，别动别人的树
+        conn = cur.get("out")
+    # 进程还活着 = 主控没回来，这棵树是被我们主动收的，别报成"管道自然关掉"
+    reason = "attach_lost" if proc.poll() is None else "pipe_closed"
+    # 顺序很关键：先 taskkill /T 再关 stdin。反过来(先喂 EOF)会让插头自己退，
+    # kill_tree 看见 poll() 不是 None 就整个跳过 /T，孙进程留在原地——影子用例 case5 抓到的就是它。
+    kill_tree(proc, f"{'宽限到期' if reason == 'attach_lost' else '管道结束'} {stream_id}")
+    try:
+        proc.stdin.close()
+    except Exception:
+        pass
+    _bye(conn)
+    with LOCK:
+        cur = STREAMS.get(stream_id)
+        if cur and cur.get("gen") == gen:
+            STREAMS.pop(stream_id, None)
+    exit_code = proc.poll()
+    try:
+        notify_task_exit(stream_id, exit_code, reason)
+    except Exception as e:
+        log(f"task.exit 通知失败: {e}")
+    log(f"流 {stream_id} 收口 reason={reason} exitCode={exit_code}")
+
+
+def _stream_out(stream_id):
+    """一个流只许一个 stdout 读者：重新 attach 只换"出向连接"，不再起第二个读者。
+
+    两个线程同抢一根管道时，回连后的第一帧会被上一个(连接已断的)读者吃掉——生产 10:43
+    交棒验证实测：日志里 gen=2 认到了，initialize 却没回包。出向归一读、按当前连接投递，
+    宽限期里没人在听就先丢一段(主控回连后从下一帧接上)，这是明码写死的取舍。
+    """
+    with LOCK:
+        st = STREAMS.get(stream_id)
+        proc = st["proc"] if st else None
+    if proc is None:
+        return
+    while True:
         try:
-            while True:
-                chunk = conn.recv(65536)
-                if not chunk:
-                    break
-                proc.stdin.write(chunk)
-                proc.stdin.flush()
+            chunk = proc.stdout.read1(65536)   # 有数据立刻返回，绝不能用 read(n)(会阻塞攒满)
         except Exception:
-            pass
-        finally:
+            break
+        if not chunk:
+            break
+        with LOCK:
+            st = STREAMS.get(stream_id)
+            conn = st.get("out") if st else None
+        if conn is None:
+            continue
+        try:
+            conn.sendall(chunk)
+        except Exception:
+            with LOCK:
+                st = STREAMS.get(stream_id)
+                if st and st.get("out") is conn:
+                    st["out"] = None
+    with LOCK:
+        st = STREAMS.get(stream_id)
+        gen = st.get("gen", 0) if st else -1
+        conn = st.get("out") if st else None
+    # 读者退出前把当前连接收干净：不 shutdown 的话入向泵会永远卡在 recv 上
+    _bye(conn)
+    _finish(stream_id, gen)
+
+
+def _close_stdin_ok(stream_id, gen):
+    """只有"我还是当前这次 attach、且这个插头没配宽限"时，才轮到我用 EOF 关掉插头。"""
+    with LOCK:
+        st = STREAMS.get(stream_id)
+        if not st or st.get("gen") != gen:
+            return False                 # 已被新 attach 接管，别碰它的管道
+        if st.get("grace", 0) > 0:
+            return False                 # 宽限里关 EOF = 任务照死，宽限白给(影子 case5 按住)
+        return True
+
+
+def _pipe_in(conn, proc, stream_id, gen):
+    """attach 之后：主控 -> 插头的入向泵(跑在 peel 线程里)。出向归 _stream_out。"""
+    try:
+        while True:
+            chunk = conn.recv(65536)
+            if not chunk:
+                break
+            with LOCK:
+                st = STREAMS.get(stream_id)
+                if not st or st.get("gen") != gen:
+                    break               # 已被新 attach 接管，这条连接不再是当前入向
+            proc.stdin.write(chunk)
+            proc.stdin.flush()
+    except Exception:
+        pass
+    finally:
+        if _close_stdin_ok(stream_id, gen):
             try:
                 proc.stdin.close()
             except Exception:
                 pass
-
-    def pump_out():
-        try:
-            while True:
-                # read1：有数据立刻返回，绝不能用 read(n)（会阻塞攒满）
-                chunk = proc.stdout.read1(65536)
-                if not chunk:
-                    break
-                conn.sendall(chunk)
-        except Exception:
-            pass
-        finally:
-            # 先 shutdown 再 close：Windows 下 close() 不会打断另一个线程正卡在 recv 上的
-            # pump_in，管道关掉而 pump_in 永远挂着 = conn 悬挂(必修③的另一半)
-            try:
-                conn.shutdown(socket.SHUT_RD)
-            except Exception:
-                pass
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-    t_in = threading.Thread(target=pump_in, daemon=True)
-    t_out = threading.Thread(target=pump_out, daemon=True)
-    t_in.start()
-    t_out.start()
-    t_out.join()
-    log(f"数据管道结束 {stream_id}")
-    # task.exit 事件回传(DSH 超时清理依赖):通知所有活跃控制连接
-    try:
-        exit_code = proc.poll()
-        notify_task_exit(stream_id, exit_code)
-    except Exception as e:
-        log(f"task.exit 通知失败: {e}")
-    kill_tree(proc, "管道结束")
-    with LOCK:
-        STREAMS.pop(stream_id, None)
+        with LOCK:
+            st = STREAMS.get(stream_id)
+            if st and st.get("out") is conn:
+                st["out"] = None
+        _bye(conn)                     # 自己这条连接的句柄归自己收，别留给下一个 attach
+        _finish(stream_id, gen)
 
 
 # ---------------- task.open / close ----------------
@@ -358,10 +457,17 @@ def task_open(params, plugs):
         log(f"spawn 失败: {e}")
         return None, str(e)
 
+    # 宽限时长走 plug.env：主控想给某个 harness 更长回连窗口，只改 plugs.json 就够，不用动代码重启。
+    try:
+        grace = float((plug.get("env") or {}).get("HM_ATTACH_GRACE_S", DEFAULT_ATTACH_GRACE_S))
+    except (TypeError, ValueError):
+        grace = DEFAULT_ATTACH_GRACE_S
     with LOCK:
         SEQ["n"] += 1
         stream_id = f"s-{SEQ['n']:04d}"
-        STREAMS[stream_id] = {"proc": proc, "conn": None, "plug_id": plug_id}
+        STREAMS[stream_id] = {"proc": proc, "out": None, "out_started": False,
+                              "plug_id": plug_id, "gen": 0, "grace": grace,
+                              "finishing": False}
 
     # stderr 落盘，不干扰协议流
     os.makedirs(LOGDIR, exist_ok=True)
@@ -373,13 +479,14 @@ def task_open(params, plugs):
     return {"streamId": stream_id}, None
 
 
-def notify_task_exit(stream_id, exit_code):
+def notify_task_exit(stream_id, exit_code, reason="pipe_closed"):
     """向所有活跃控制连接广播 task.exit 事件(死因回传,主控超时清理依赖)
-    格式: {"jsonrpc":"2.0","method":"task.exit","params":{"streamId","exitCode","reason","ts"}}"""
+    格式: {"jsonrpc":"2.0","method":"task.exit","params":{"streamId","exitCode","reason","ts"}}
+    reason=attach_lost 表示主控没回连、树是被宽限到期收掉的，不是任务自己跑完的"""
     msg = {"jsonrpc": "2.0", "method": "task.exit",
            "params": {"streamId": stream_id,
                       "exitCode": exit_code,
-                      "reason": "pipe_closed",
+                      "reason": reason,
                       "ts": int(time.time() * 1000)}}
     with LOCK:
         conns = list(CTL_CONNS)
@@ -402,8 +509,13 @@ def task_close(params):
     except Exception:
         pass
     try:
-        if st.get("conn"):
-            st["conn"].close()
+        proc_stdin = st["proc"].stdin
+        if proc_stdin and not proc_stdin.closed:
+            proc_stdin.close()
+    except Exception:
+        pass
+    try:
+        _bye(st.get("out"))     # 主控还挂着 attach 就 close：不 shutdown 那条 peel 线程永远卡在 recv
     except Exception:
         pass
     log(f"task.close {sid}")
@@ -488,13 +600,27 @@ def peel(conn, addr, plugs):
         stream_id = (first.get("params") or {}).get("streamId")
         with LOCK:
             st = STREAMS.get(stream_id)
+            gen = None
+            prev = None
+            if st:
+                # 每次 attach 递增代次：宽限里的收口线程看见代次变了就自动让位。
+                # 出向连接直接换新——旧连接必须在锁外关掉，否则上一条 peel 线程会一直卡在 recv 上。
+                prev = st.get("out")
+                st["gen"] = gen = st.get("gen", 0) + 1
+                st["out"] = conn
+                st["finishing"] = False
+                first = not st.get("out_started")
+                st["out_started"] = True
         if not st:
             log(f"attach 未知 stream {stream_id}（可能已关闭或 task.open 未完成）")
             conn.close()
             return
-        st["conn"] = conn
-        log(f"attach {stream_id} from {addr[0]}:{addr[1]} pid={st['proc'].pid}")
-        _pipe(conn, st["proc"], stream_id)
+        if prev is not None and prev is not conn:
+            _bye(prev)      # 锁外关：锁内关会把上一个 peel 线程连同新 attach 一起卡住
+        if first:
+            threading.Thread(target=_stream_out, args=(stream_id,), daemon=True).start()
+        log(f"attach {stream_id} from {addr[0]}:{addr[1]} pid={st['proc'].pid} gen={gen}")
+        _pipe_in(conn, st["proc"], stream_id, gen)
         return
     conn.settimeout(None)
     control_loop(conn, addr, first, plugs)

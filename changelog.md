@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.1 — 2026-10-21
+
+- harnessd f312dea:attach-EOF 宽限(plug.env HM_ATTACH_GRACE_S,默认 0=断开即收树)+ 交棒吞帧修复(_stream_out 单线程按当前连接投递)+ 收口统一(先杀树后关管;广播 reason=attach_lost|pipe_closed)
+- 注意:日志信号变更——"数据管道结束 <sid>" 已移除,替代为 "流 <sid> 收口 reason=..."
+
+
 ## v1.3.0 — 2026-10-21
 
 - 客户端件大修(必修 1-7):适配器并发/死锁/孤儿收尸/单例锁/频道写入锁全面加固
