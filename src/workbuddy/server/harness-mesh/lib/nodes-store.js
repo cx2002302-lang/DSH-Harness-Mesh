@@ -19,6 +19,16 @@ export class NodesStore {
     mkdirSync(dirname(file), { recursive: true });
   }
 
+  /** 探测新字段(thinkingOptions/modeOptions,2026-10-30 思考档位全链)已在 validateNode 白名单里,
+   *  这里只兜一层:GUI 表单不含这些字段(source 无痕迹)时保留旧值,不清空探测结果。 */
+  #keepProbeFields(normalized, source, current = null) {
+    const srcHasThinking = source?.thinkingOptions !== undefined || source?.thinking !== undefined;
+    if (!srcHasThinking) normalized.thinkingOptions = current?.thinkingOptions ?? null;
+    const srcHasModes = source?.modeOptions !== undefined || source?.modes !== undefined;
+    if (!srcHasModes) normalized.modeOptions = Array.isArray(current?.modeOptions) ? current.modeOptions : [];
+    return normalized;
+  }
+
   /** @param seeds patch 配置里的节点(Record<name, node>) */
   load(seeds = {}) {
     this.nodes.clear();
@@ -26,7 +36,7 @@ export class NodesStore {
     // 1) patch 种子为底(全部记入 seeds,tombstone 才能在多次重启后持续生效)
     for (const [name, node] of Object.entries(seeds)) {
       this.seeds.add(name);
-      this.nodes.set(name, validateNode(name, node));
+      this.nodes.set(name, this.#keepProbeFields(validateNode(name, node), node));
     }
     // 2) nodes.json 覆盖:先应用 tombstone 删除,再灌 GUI 节点(同名以 GUI 为准)
     if (existsSync(this.file)) {
@@ -38,7 +48,7 @@ export class NodesStore {
         // 原来整个 nodes 数组在同一个 try 里,一条非法 → 其后条目被静默丢弃)
         for (const node of data?.nodes ?? []) {
           try {
-            this.nodes.set(node.name, validateNode(node.name, node));
+            this.nodes.set(node.name, this.#keepProbeFields(validateNode(node.name, node), node));
           } catch (error) {
             console.log(`[harness-mesh] nodes.json 跳过非法条目 "${node?.name}": ${String(error?.message ?? error)}`);
           }
@@ -58,13 +68,33 @@ export class NodesStore {
     return this.nodes.get(name) ?? null;
   }
 
-  /** 新增或覆盖(校验 + 落盘)。 */
+  /** 新增或覆盖(校验 + 落盘)。GUI 表单不含 capability 时保留原探测状态。 */
   save(node) {
     const name = typeof node?.name === "string" ? node.name.trim() : "";
-    const normalized = validateNode(name, node);
+    const current = this.nodes.get(name) ?? null;
+    const normalized = this.#keepProbeFields(validateNode(name, {
+      ...node,
+      capability: node.capability ?? current?.capability ?? null,
+    }), node, current);
     this.nodes.set(name, normalized);
     this.#flush();
     return normalized;
+  }
+
+  /** 局部更新(浅合并 + capability 深合并,校验后整体落盘);节点不存在返回 null。
+   *  capability-refresh 守护用它写 models/thinkingOptions/modeOptions/capability.lastProbe*。 */
+  update(name, patch = {}) {
+    const current = this.nodes.get(name);
+    if (!current) return null;
+    const source = {
+      ...current,
+      ...patch,
+      capability: { ...(current.capability ?? {}), ...(patch.capability ?? {}) },
+    };
+    const merged = this.#keepProbeFields(validateNode(name, source), source, current);
+    this.nodes.set(name, merged);
+    this.#flush();
+    return merged;
   }
 
   remove(name) {

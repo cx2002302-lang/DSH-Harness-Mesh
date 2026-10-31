@@ -112,10 +112,14 @@ const NODE_FIXTURE = {
 
 // ------------------------------------------------------------------ 注册契约
 
-test("createTools:返回 M1 六件套,name 与顺序符合契约", () => {
+test("createTools:返回 M1 六件套 + fs 工具组(fs_ 前缀,挂载在尾部)", () => {
   const { tools } = buildTools();
-  assert.deepEqual(tools.map((t) => t.name), [
+  const names = tools.map((t) => t.name);
+  assert.deepEqual(names.slice(0, 6), [
     "harness_list", "harness_dispatch", "harness_config", "harness_status", "harness_cancel", "harness_result",
+  ]);
+  assert.deepEqual(names.filter((n) => n.startsWith("fs_")), [
+    "fs_team_init", "fs_team_verify", "fs_list", "fs_read", "fs_write", "fs_upload", "fs_download", "fs_remove",
   ]);
 });
 
@@ -131,7 +135,7 @@ test("createTools:每个工具都有 name/非空 description/parameters/output.s
   const { tools } = buildTools();
   for (const tool of tools) {
     assert.equal(typeof tool.name, "string");
-    assert.ok(tool.name.startsWith("harness_"));
+    assert.ok(tool.name.startsWith("harness_") || tool.name.startsWith("fs_"), tool.name);
     assert.equal(typeof tool.description, "string");
     assert.ok(tool.description.length > 0, `${tool.name} description 为空`);
     assert.equal(typeof tool.execute, "function");

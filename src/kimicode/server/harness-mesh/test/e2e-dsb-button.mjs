@@ -1,9 +1,12 @@
-// 无头验证 DSB 按钮:地址栏无 token + DSB 正常落地(非 401)
+// 无头验证 DSH 与 DeepSeekBot 在同一页面、同一进程内双向切换。
 // 用法:DSH_TOKEN=<主GUI token> node test/e2e-dsb-button.mjs(需本机 google-chrome + puppeteer-core)
+import assert from "node:assert/strict";
 import puppeteer from "puppeteer-core";
 
 const BASE = process.env.DSH_BASE ?? "http://127.0.0.1:80";
 const TOKEN = process.env.DSH_TOKEN ?? "";
+const BOT_ENTRY = 'nav button[aria-label="Bot 模式"]';
+const BOT_RAIL = ".bh-workspace-rail";
 const shot = (page, name) => page.screenshot({ path: `/tmp/dsb-btn-${name}.png` });
 
 const browser = await puppeteer.launch({
@@ -11,44 +14,40 @@ const browser = await puppeteer.launch({
   headless: "new",
   args: ["--no-sandbox", "--window-size=1440,900"],
 });
-const page = await browser.newPage();
-await page.setViewport({ width: 1440, height: 900 });
+try {
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1440, height: 900 });
+  await page.goto(`${BASE}/?token=${TOKEN}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.waitForSelector(BOT_ENTRY, { visible: true, timeout: 45000 });
+  assert.equal(await page.$(BOT_RAIL), null, "默认应显示 DSH 主界面");
+  const mainUrl = page.url();
 
-// 1) 开主 GUI(token 经 303 换 cookie)
-await page.goto(`${BASE}/?token=${TOKEN}`, { waitUntil: "networkidle2", timeout: 30000 });
-console.log("主 GUI 落地:", page.url());
+  await page.click(BOT_ENTRY);
+  await page.waitForSelector(BOT_RAIL, { visible: true, timeout: 15000 });
+  assert.equal(page.url(), mainUrl, "进入 Bot 不应改变 URL 或端口");
+  await page.evaluate(() => {
+    const button = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "知道了");
+    button?.click();
+  });
+  await shot(page, "bot");
 
-// 2) 等机器人按钮出现(插件 nav 注入)
-const BTN = 'button[data-hm-plugin-icon="DeepSeekBot · Bot 团队(打开 DSB 实例)"]';
-await page.waitForSelector(BTN, { timeout: 45000 });
-console.log("按钮已出现");
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.waitForSelector(BOT_ENTRY, { visible: true, timeout: 45000 });
+  assert.equal(await page.$(BOT_RAIL), null, "刷新后应回到 DSH 主界面");
 
-// 3) 盯新标签页 + iframe 预登录
-const newTarget = new Promise((res) => browser.once("targetcreated", (t) => res(t)));
-const iframeSeen = new Promise((res) => {
-  page.on("framenavigated", (f) => { if (f !== page.mainFrame()) res(f.url()); });
-  setTimeout(() => res(null), 8000);
-});
-await page.click(BTN);
-
-const t = await newTarget;
-const newPage = await t.page();
-await newPage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-const finalUrl = newPage.url();
-const iframeUrl = await iframeSeen;
-console.log("iframe 预登录 URL 含 token?", iframeUrl ? (iframeUrl.includes("token=") ? "是(正常,藏在 iframe)" : iframeUrl) : "(未见 iframe)");
-console.log("新标签最终地址:", finalUrl);
-console.log("地址栏含 token?", finalUrl.includes("token=") ? "❌ 是" : "✅ 否");
-
-// 4) 新标签内容:不应是 authentication required
-const bodyText = await newPage.evaluate(() => document.body?.innerText?.slice(0, 300) ?? "");
-const authFail = /authentication required/i.test(bodyText);
-console.log("页面含 authentication required?", authFail ? "❌ 是" : "✅ 否");
-console.log("页面片段:", JSON.stringify(bodyText.slice(0, 120)));
-await newPage.screenshot({ path: "/tmp/dsb-btn-newtab.png" });
-await shot(page, "maingui");
-
-const cookies = await page.cookies("http://127.0.0.1:31967/");
-console.log("DSB cookie 已种:", cookies.length > 0 ? "✅ " + cookies.map((c) => c.name.slice(0, 20) + "…").join(",") : "❌ 无");
-console.log(authFail || finalUrl.includes("token=") ? "VERDICT: FAIL" : "VERDICT: PASS");
-await browser.close();
+  await page.click(BOT_ENTRY);
+  await page.waitForSelector(BOT_RAIL, { visible: true, timeout: 15000 });
+  await page.click(".bh-workspace-exit");
+  await page.waitForSelector(BOT_ENTRY, { visible: true, timeout: 15000 });
+  assert.equal(await page.$(BOT_RAIL), null, "退出后应回到 DSH 主界面");
+  assert.equal(page.url(), mainUrl, "返回 DSH 不应改变 URL 或端口");
+  assert.equal((await browser.pages()).length, 1, "切换不应打开新标签页");
+  const externalBotRequests = await page.evaluate(() =>
+    performance.getEntriesByType("resource").some((entry) => entry.name.includes(":31967")),
+  );
+  assert.equal(externalBotRequests, false, "切换不应请求第二套 31967 实例");
+  await shot(page, "maingui");
+  console.log("VERDICT: PASS — DSH/Bot 同页双向切换,无新标签、无第二端口");
+} finally {
+  await browser.close();
+}

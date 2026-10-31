@@ -3,12 +3,12 @@
 OPS=/root/data/myagents/DSH_PiDurable/ops
 BASE=http://127.0.0.1:80
 JAR=/tmp/hm-monitor-jar.txt
-DD=${ANN_DATA:-/var/lib/ann-ctrl}
-CHAT=${DSH_DATA:-/srv/dsh-data}/AI协调频道/chat.log
+DD=/home/user/.local/share/ann-ctrl
+CHAT=/home/user/MeshData/AI协调频道/chat.log
 mkdir -p $OPS
 prev_snap=""
 
-plant() { curl -s -m 5 -c $JAR -L -o /dev/null "$BASE/?token=<DSH_TOKEN>" 2>/dev/null; }
+plant() { curl -s -m 5 -c $JAR -L -o /dev/null "$BASE/?token=88888888" 2>/dev/null; }
 plant
 
 sample() {
@@ -18,7 +18,7 @@ sample() {
     snap+="svc:$s=$(systemctl --user is-active $s.service 2>/dev/null);"
   done
   # ANN 节点(名=在线?)
-  snap+="nodes:$(ann-ctrl node list --data-dir=$DD 2>/dev/null | awk 'NR>1 && $2!=""{printf "%s=%s,",$2,$5}');"
+  snap+="nodes:$(/home/user/.local/bin/ann-ctrl node list --data-dir=$DD 2>/dev/null | awk 'NR>1 && $2!=""{printf "%s=%s,",$2,$5}');"
   # mesh 任务(最近 5 条的状态)
   snap+="tasks:$(curl -s -m 8 -b $JAR "$BASE/api/harness-mesh/tasks" 2>/dev/null | python3 -c "
 import sys,json
@@ -31,7 +31,7 @@ except Exception: print('api-error')" 2>/dev/null);"
     snap+="chat:$(grep -c '^### ' "$CHAT" 2>/dev/null)blocks,last=$(grep '^### ' "$CHAT" 2>/dev/null | tail -1 | cut -c5-40);"
   fi
   # 共享新文件(最近 2 小时)
-  snap+="share:$(find ${DSH_DATA:-/srv/dsh-data} -maxdepth 2 -mmin -120 -type f 2>/dev/null | wc -l)files;"
+  snap+="share:$(find /home/user/MeshData -maxdepth 2 -mmin -120 -type f 2>/dev/null | wc -l)files;"
   echo "$snap"
 }
 

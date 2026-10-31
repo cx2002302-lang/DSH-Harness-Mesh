@@ -27,9 +27,9 @@ HM_NODE_NAME 覆盖）类型是 `acp-plug`，它不是简单的
 - read 必须用 read1/os.read，绝不能用 read(n)（会阻塞攒满 n 字节）
 
 用法：
-  python <HM_BASE_DIR>/harnessd_win.py [--host 0.0.0.0] [--port 7080]
+  python C:\\wb-mesh\\harnessd_win.py [--host 0.0.0.0] [--port 7080]
 环境变量：
-  ANN_NODE_IP   自报的 ANN 绿模地址（形如 <ANN-NODE-IP>）
+  ANN_NODE_IP   自报的 ANN 绿模地址（例如 100.64.0.10）
   HM_BASE_DIR   运行时根目录（plugs.json / logs / 默认 cwd）
   HM_ATTACH_GRACE_S  attach 断开后等主控回连的秒数，默认 0=断开即收树；
                      plugs.json 里某个 plug 的 env 单独写这份就按它的值走
@@ -48,9 +48,9 @@ import threading
 import time
 
 # 运行时根目录：plugs.json、logs、默认 cwd、cbcli 都从这里派生。
-# 写死固定目录时，影子实例(换端口做验证)会把自己的日志写进生产同一份
+# 写死 C:\wb-mesh 时，影子实例(换端口做验证)会把自己的日志写进生产同一份
 # harnessd_win.log，排查时两条时间线混在一起；给个 env 覆盖，验证和发布都能用。
-DEFAULT_CWD = os.environ.get("HM_BASE_DIR", os.getcwd())  # 缺省=当前运行目录;部署时用 HM_BASE_DIR 指定
+DEFAULT_CWD = os.environ.get("HM_BASE_DIR", r"C:\wb-mesh")
 PLUGS_FILE = os.path.join(DEFAULT_CWD, "plugs.json")
 LOGDIR = os.path.join(DEFAULT_CWD, "logs")
 
@@ -203,10 +203,10 @@ def find_plug(plugs, plug_id):
 # ---------------- 自报 ----------------
 def _lan_addr():
     """UDP connect 技巧取本机内网 IPv4(不发包，只让内核挑一条路由)。
-    探测目标原来钉死某内网地址——换台没有这个网段的机器，挑不到路由就静默
+    探测目标原来钉死 192.168.1.208:80——换台没有这个网段的机器，挑不到路由就静默
     变 None，主控按 lan_addr 找节点找不到，现场还没法改。LAN_PROBE_IP/PORT 可指到
     本地可达地址；那条也挑不出来时再兜一发公网 DNS(同样只是挑路由)。"""
-    host = os.environ.get("LAN_PROBE_IP", "192.0.2.1")  # 缺省=RFC5737 文档占位地址;部署时用 LAN_PROBE_IP 指到局域网可达地址
+    host = os.environ.get("LAN_PROBE_IP", "192.168.1.208")
     port = int(os.environ.get("LAN_PROBE_PORT", "80"))
     targets = [(host, port)]
     fallback = ("8.8.8.8", 53)

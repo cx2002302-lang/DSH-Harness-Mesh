@@ -107,7 +107,7 @@ export class MeshController {
   }
 
   /** 下发任务。返回 task 记录(状态 queued/running 由内部推进,这里先同步到 session 建立)。 */
-  async dispatch({ harness, prompt, cwd, timeoutMs, deny, approvalAgent, origin, signal, model }) {
+  async dispatch({ harness, prompt, cwd, timeoutMs, deny, approvalAgent, origin, signal, model, thinking }) {
     const node = this.nodes.get(harness);
     if (!node) {
       throw new Error(`harness-mesh: 节点 "${harness}" 不存在;可用节点: ${this.nodes.list().map((n) => n.name).join(", ") || "(无)"}`);
@@ -128,6 +128,7 @@ export class MeshController {
       timeout_ms: timeout,
       origin: typeof origin === "string" && origin ? origin : null,  // 发起会话(用于 GUI 按会话归类)
       model: typeof model === "string" && model ? model : null,     // 按任务指定模型(覆盖节点默认;日常功能:指定模型)
+      thinking: thinking ?? null,                                   // 思考档位({configId,value} 或裸 value;2026-10-30)
       created_at: nowIso(),
     });
     const runtime = {
@@ -212,7 +213,7 @@ export class MeshController {
       // acp-plug 是被控机:cwd 不默认用主控进程目录(那是 Linux 路径,Windows 上直接 267),
       // 传 null 让被控机 harnessd 用 plug 配置或自身工作目录
       const cwd = task.cwd ?? node.cwd ?? (node.type === "acp-plug" ? null : process.cwd());
-      const sessionId = await adapter.newSession(cwd, task.model);
+      const sessionId = await adapter.newSession(cwd, task.model, task.thinking ?? undefined);
       runtime.sessionId = sessionId;
       this.sessionIndex.set(sessionId, task.task_id);
       this.store.update(task.task_id, { state: "running", session_ref: sessionId, started_at: nowIso() });

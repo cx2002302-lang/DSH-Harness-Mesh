@@ -16,6 +16,7 @@ import net from "node:net";
 import { readFile, writeFile } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
 import { AGENT_METHODS, CLIENT_METHODS, PROTOCOL_VERSION, client, ndJsonStream } from "@agentclientprotocol/sdk";
+import { normalizeThinking, extractConfigOptions } from "./acp-stdio.js";
 
 /** 长度分帧(4 字节大端 + UTF-8 JSON)的控制连接。 */
 class PlugControl {
@@ -228,8 +229,8 @@ export class AcpPlugAdapter {
     return r;
   }
 
-  /** 开远程流 + 数据管道 + ACP initialize + session/new(+set_model)。 */
-  async newSession(cwd, model) {
+  /** 开远程流 + 数据管道 + ACP initialize + session/new(+set_model+思考档位)。 */
+  async newSession(cwd, model, thinking) {
     // 会话建立整段 30s 硬超时:harnessd 半死时 task.open(控制连接挂)/initialize(数据连接半开)
     // 都会永久挂起,任务卡 queued 无终态(2026-10-17 08:49 实踩:卡 9 分钟)。
     const OPEN_TIMEOUT_MS = 30_000;
@@ -237,7 +238,7 @@ export class AcpPlugAdapter {
     const opened = { streamId: null };
     try {
       return await Promise.race([
-        this.#openSession(cwd, model, opened),
+        this.#openSession(cwd, model, thinking, opened),
         new Promise((_, reject) => {
           timer = setTimeout(() => {
             const err = new Error(`插头会话建立超时(${OPEN_TIMEOUT_MS / 1000}s):对端 harnessd 可能半死,重试即可`);
@@ -268,7 +269,7 @@ export class AcpPlugAdapter {
     }
   }
 
-  async #openSession(cwd, model, opened) {
+  async #openSession(cwd, model, thinking, opened) {
     await this.ensureRunning();
     const openCall = () => this.control.call("task.open", {
       plugId: this.node.plugId,
@@ -400,6 +401,23 @@ export class AcpPlugAdapter {
         throw new Error(`harness-mesh: 节点 ${this.node.name} 设置模型 ${effModel} 失败: ${String(error?.message ?? error)}`);
       }
     }
+    // 思考档位(2026-10-30):session/set_config_option;裸字符串 value 用第一个 thought_level 的 id。
+    const think = normalizeThinking(thinking);
+    if (think && think.value != null && think.value !== "") {
+      let configId = think.configId;
+      if (!configId) {
+        const tl = (res?.configOptions ?? []).find((o) => o?.category === "thought_level");
+        if (!tl?.id) {
+          throw new Error(`harness-mesh: 节点 ${this.node.name} 不支持思考档位(session/new 无 thought_level 配置),无法设置 thinking=${think.value}`);
+        }
+        configId = tl.id;
+      }
+      try {
+        await connection.agent.request("session/set_config_option", { sessionId, configId, value: think.value });
+      } catch (error) {
+        throw new Error(`harness-mesh: 节点 ${this.node.name} 设置思考档位 ${configId}=${think.value} 失败: ${String(error?.message ?? error)}`);
+      }
+    }
     return sessionId;
   }
 
@@ -410,10 +428,13 @@ export class AcpPlugAdapter {
     const res = this.lastSessionNewRes ?? {};
     // 两种形状都认:①标准 ACP res.models.availableModels;②opencode 方言 configOptions[category=model] 的 select(裸抓实测)
     const acp = res?.models?.availableModels ?? [];
+    const caps = extractConfigOptions(res);
     if (acp.length) {
       return {
         models: acp.map((m) => ({ modelId: String(m.modelId ?? ""), name: String(m.name ?? m.modelId ?? "") })).filter((m) => m.modelId),
         currentModelId: res?.models?.currentModelId ?? null,
+        thinking: caps.thinking,
+        modes: caps.modes,
       };
     }
     const opt = (res?.configOptions ?? []).find((o) => o?.category === "model" && Array.isArray(o.options));
@@ -421,9 +442,20 @@ export class AcpPlugAdapter {
       return {
         models: opt.options.map((o) => ({ modelId: String(o.value ?? ""), name: String(o.name ?? o.value ?? "") })).filter((m) => m.modelId),
         currentModelId: opt.currentValue ?? null,
+        thinking: caps.thinking,
+        modes: caps.modes,
       };
     }
-    return { models: [], currentModelId: null };
+    return { models: [], currentModelId: null, thinking: caps.thinking, modes: caps.modes };
+  }
+
+  /** 探测思考档位/模式配置(开临时会话读 session/new 的 configOptions,读完 cancel 释放)。无则 null。 */
+  async listThinking(cwd) {
+    const sessionId = await this.newSession(cwd ?? this.node.cwd ?? "/tmp", null);
+    try { await this.cancel(sessionId); } catch { /* 尽力释放 */ }
+    const caps = extractConfigOptions(this.lastSessionNewRes ?? {});
+    if (!caps.thinking && !caps.modes.length) return null;
+    return caps;
   }
 
   /** 把远程进程死因织进错误信息(harnessd task.exit 回传的 code+stderr)。 */

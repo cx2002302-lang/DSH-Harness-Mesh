@@ -77,13 +77,22 @@ def _recv_exact(sock, n):
 # ---------- 自报与插头清单 ----------
 
 def lan_addr():
-    """经 UDP connect 技巧取本机内网 IPv4(不真发包)。"""
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("<ANN_SERVER>", 8443))
-            return s.getsockname()[0]
-    except OSError:
-        return None
+    """经 UDP connect 技巧取本机内网 IPv4(不真发包，只让内核挑一条路由)。
+
+    探测目标原来钉死 192.168.1.208:8443——换台没有这个网段的机器就静默返回 None，
+    主控按 lan_addr 找节点找不到，现场也改不动源码里的字面量。
+    LAN_PROBE_IP / LAN_PROBE_PORT 可指到本地可达地址；那条挑不出来时再兜一发公网 DNS。
+    """
+    host = os.environ.get("LAN_PROBE_IP", "192.168.1.208")
+    port = int(os.environ.get("LAN_PROBE_PORT", "8443"))
+    for h, p in [(host, port), ("8.8.8.8", 53)]:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect((h, p))
+                return s.getsockname()[0]
+        except OSError:
+            continue
+    return None
 
 
 def self_report():

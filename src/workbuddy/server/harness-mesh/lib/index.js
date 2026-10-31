@@ -15,6 +15,8 @@ import { MeshController } from "./mesh.js";
 import { createTools } from "./tools.js";
 import { registerRoutes } from "./http.js";
 import { startModelBridge } from "./model-bridge.js";
+import { startLlmGateway } from "./llm-gateway.js";
+import { startCapabilityRefresh } from "./capability-refresh.js";
 
 const name = "harness-mesh";
 const inject = ["tools", "connection", "agentDefaultModel", "llm", "settings"];
@@ -45,6 +47,13 @@ const Config = z.object({
   harnesses: z.dict(HarnessEntry).default({}),
   /** 模型桥:把节点背后的模型自动注册进 llm-pi-ai 供应商目录(随 nodes.json 热同步) */
   modelBridge: z.object({ enable: z.boolean().default(false) }).default({}),
+  /** 节点能力识别:定期探测各节点真实模型清单写回 nodes.json(默认开) */
+  capabilityRefresh: z.object({
+    enable: z.boolean().default(true),
+    intervalMs: z.number().step(1).min(1000).default(300000),
+    /** 自动策展(默认开):实况即策展,探测结果全量同步进节点 models;节点级 autoCurate:false 可单点退出 */
+    autoCurate: z.boolean().default(true),
+  }).default({}),
 });
 
 let applyCount = 0;
@@ -62,13 +71,31 @@ function apply(ctx, config) {
     const disposers = tools.map((tool) => ctx.tools.register(tool));
     // 路由也进 effect:apply 重入(配置热更/双半身装载)时先清理后重注册,避免重复注册报错
     const disposeRoutes = registerRoutes(ctx, mesh, nodes);
-    // 模型桥:仅在显式开启且实例有 settings+llm 服务时激活(默认关,主 GUI 不需要)
+    // 模型桥+LLM 网关(网关模式):仅在显式开启且实例有 settings+llm 服务时激活(默认关,主 GUI 不需要)。
+    // 桥把每节点发布成一条 DSB 供应商条目(baseURL 指回网关);网关承接 OpenAI 兼容调用并派发给节点 harness。
+    const meshLog = (line) => { console.log(line); ctx.logger.info(line); };
+    const nodesFile = join(resolveDshHome(), "harness-mesh", "nodes.json");
     const disposeBridge = normalized.modelBridge.enable
-      ? startModelBridge(ctx, join(resolveDshHome(), "harness-mesh", "nodes.json"), () => nodes.list(), join(resolveDshHome(), "harness-mesh"), (line) => { console.log(line); ctx.logger.info(line); })
+      ? startModelBridge(ctx, nodesFile, () => nodes.list(), join(resolveDshHome(), "harness-mesh"), meshLog)
       : () => {};
+    const disposeGateway = normalized.modelBridge.enable
+      ? startLlmGateway(ctx, mesh, nodes, nodesFile, meshLog)
+      : () => {};
+    // 能力识别守护:定期 probeModels 刷新节点 models 白名单(适配器已判死的不探)
+    const disposeRefresh = startCapabilityRefresh({
+      mesh,
+      nodesStore: nodes,
+      intervalMs: normalized.capabilityRefresh.intervalMs,
+      enable: normalized.capabilityRefresh.enable,
+      autoCurate: normalized.capabilityRefresh.autoCurate,
+      log: (line) => { console.log(line); ctx.logger.info(line); },
+      isNodeLive: (node) => mesh.adapters.get(node.name)?.alive !== false,
+    });
     return () => {
       for (const dispose of disposers) dispose();
       disposeBridge();
+      disposeGateway();
+      disposeRefresh();
       void disposeRoutes();
       void mesh.dispose();
     };

@@ -17,7 +17,7 @@
   3) --permission-mode dont_ask 会把写文件/跑命令**静默自动拒绝**(表现为"被拦截"而非报错),
      编程节点不能用。实测三种口子:accept_edits 放行写文件+只读命令、其余自动拒;
      auto 全放行但 CLI 内置安全分类器会拦"与开发无关"的命令;bypass_permissions 全放行。
-     → 2026-10-21 由使用方定 **bypass_permissions**(跨机派活要能跑测试/装依赖)。
+     → 主控 2026-10-21 定 **bypass_permissions**(跨机派活要能跑测试/装依赖)。
      代价:适配器看不见 CLI 内部工具调用(`-p` 一次性执行),mesh 的 DEFAULT_DENY 权限链
      在这一层不生效,爆炸半径=本机任意命令执行权,靠主控侧 prompt 纪律约束。
 
@@ -34,7 +34,7 @@
 配置变量一律带 QODER_ADAPTER_ 前缀:桌面端往自家会话里注入了 QODER_CLI=1 这类标记变量,
 短名会被顶掉(第一版用 QODER_CLI 当配置名,实测被注入值 "1" 覆盖 → 启动即判定 CLI 不存在)。
 
-诊断只写 <HM_BASE_DIR>/logs/qoder-adapter.log 与 stderr(HM_BASE_DIR/QODER_ADAPTER_LOG_DIR 可覆盖);**stdout 只准有 NDJSON**。
+诊断只写 C:\\wb-mesh\\logs\\qoder-adapter.log 与 stderr;**stdout 只准有 NDJSON**。
 """
 import json
 import os
@@ -47,11 +47,8 @@ CONTRACT_VERSION = "hm-1"
 PROTOCOL_VERSION = 1
 CREATE_NO_WINDOW = 0x08000000
 
-# CLI 位置：plug.env 的 QODER_ADAPTER_CLI 说了算；没给就按当前用户的安装位置找
-# (原来兜底是写死的"当前用户绝对路径"，换台机器或换个用户直接 ENOENT)
-QCLI = os.environ.get("QODER_ADAPTER_CLI") or os.path.join(
-    os.environ.get("USERPROFILE") or os.path.expanduser("~"),
-    ".qoder-cn", "bin", "qoderclicn", "qoderclicn.exe")
+QCLI = os.environ.get(
+    "QODER_ADAPTER_CLI", os.path.join(os.path.expanduser("~"), ".qoder-cn", "bin", "qoderclicn", "qoderclicn.exe"))
 DEFAULT_MODEL = os.environ.get("QODER_ADAPTER_MODEL") or None
 # 下面这些默认值只在 plug.env 缺失时兜底：harnessd_win 自 2026-10-21(64f08e4)起会把
 # plugs.json 的 env 段注入子进程，两边不一致时以 plugs.json 为准
@@ -62,8 +59,31 @@ MAX_TURN_WAIT = float(os.environ.get("ADAPTER_MAX_TURN_WAIT", "1800"))
 MODEL_CACHE_TTL = 60.0
 DEBUG = os.environ.get("ADAPTER_LOG") == "1"
 
-LOG_DIR = os.environ.get("QODER_ADAPTER_LOG_DIR") or os.path.join(
-    os.environ.get("HM_BASE_DIR", os.getcwd()), "logs")  # 缺省=当前运行目录;部署时用 HM_BASE_DIR 指定
+# 思考档位(2026-10-31,黑盒+binary 实证):--reasoning-effort 合法集 none|low|medium|high|xhigh|max,
+# 别名 off/disabled→none;大小写不敏感自动 trim;非法值被 CLI 静默丢弃(不退错),白名单必须卡在本层。
+REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh", "max")
+REASONING_ALIASES = {"off": "none", "disabled": "none"}
+def _env_default_reasoning():
+    raw = os.environ.get("QODER_ADAPTER_REASONING")
+    if not raw:
+        return None
+    v = REASONING_ALIASES.get(raw.strip().lower(), raw.strip().lower())
+    return v if v in REASONING_LEVELS else None
+
+
+DEFAULT_REASONING = _env_default_reasoning()  # 钉默认档(可选);非法值视同未配
+
+
+def normalize_reasoning(value):
+    """归一化思考档位:合法→档位串;非法→None。与 CLI rB() 同语义(lowercase+trim+别名)。"""
+    if value is None:
+        return None
+    v = str(value).strip().lower()
+    v = REASONING_ALIASES.get(v, v)
+    return v if v in REASONING_LEVELS else None
+
+
+LOG_DIR = os.environ.get("QODER_ADAPTER_LOG_DIR", r"C:\wb-mesh\logs")
 LOG_FILE = os.path.join(LOG_DIR, "qoder-adapter.log")
 
 OUT_LOCK = threading.Lock()
@@ -316,6 +336,9 @@ def run_turn(acp_sid, session, text):
             "--output-format", "stream-json" if STREAM else "json"]
     if session.get("model"):
         args += ["-m", session["model"]]
+    reasoning = session.get("reasoning")
+    if reasoning and reasoning != "none":
+        args += ["--reasoning-effort", reasoning]
     if session.get("resume"):
         args += ["-r", session["resume"]]
     try:
@@ -452,6 +475,8 @@ class Adapter:
             self.session_cancel(params)
         elif method == "session/set_model":
             self.session_set_model(rid, params)
+        elif method == "session/set_config_option":
+            self.session_set_config_option(rid, params)
         elif rid is not None:
             respond(rid, {"jsonrpc": "2.0", "id": rid,
                           "error": {"code": -32601, "message": f"method not found: {method}"}})
@@ -471,14 +496,23 @@ class Adapter:
         acp_sid = f"qo-{int(time.time() * 1000)}-{self.seq}"
         self.sessions[acp_sid] = {"cwd": cwd, "model": model, "turns": 0, "resume": None,
                                   "cli_sid_seen": None, "busy": False, "cancel": False,
-                                  "timeout": False, "proc": None, "prompt_rid": None}
-        log(f"session/new -> {acp_sid} cwd={cwd} model={model} 模型表={len(models)}项")
+                                  "timeout": False, "proc": None, "prompt_rid": None,
+                                  "reasoning": DEFAULT_REASONING}
+        log(f"session/new -> {acp_sid} cwd={cwd} model={model} 模型表={len(models)}项 "
+            f"reasoning={DEFAULT_REASONING or '(CLI默认)'}")
         result = {"sessionId": acp_sid}
+        config_options = []
         if models:
-            result["configOptions"] = [{
+            config_options.append({
                 "id": "model", "name": "Model", "category": "model", "type": "select",
                 "currentValue": model,
-                "options": [{"value": m, "name": m} for m in models]}]
+                "options": [{"value": m, "name": m} for m in models]})
+        # 思考档位:CLI --reasoning-effort 实证合法集;none=不传 flag(模型默认)
+        config_options.append({
+            "id": "reasoning", "name": "Reasoning Effort", "category": "thought_level",
+            "type": "select", "currentValue": DEFAULT_REASONING or "none",
+            "options": [{"value": v, "name": v} for v in REASONING_LEVELS]})
+        result["configOptions"] = config_options
         if wanted and wanted not in models:
             # 回落只写日志主控看不见,会以为这批活是它请求的那个模型跑的(审计中⑤)
             result["modelFallback"] = {"requested": wanted, "used": model,
@@ -506,6 +540,34 @@ class Adapter:
             return
         session["model"] = model_id
         log(f"set_model {params.get('sessionId')} -> {model_id}")
+        respond(rid, {"jsonrpc": "2.0", "id": rid, "result": {}})
+
+    def session_set_config_option(self, rid, params):
+        """思考档位开关:目前只认 id=reasoning(thought_level);白名单外 -32602。"""
+        session = self.sessions.get(params.get("sessionId"))
+        if session is None:
+            respond(rid, {"jsonrpc": "2.0", "id": rid,
+                          "error": {"code": -32602, "message": "unknown session"}})
+            return
+        config_id = params.get("configId")
+        if config_id != "reasoning":
+            respond(rid, {"jsonrpc": "2.0", "id": rid,
+                          "error": {"code": -32602,
+                                    "message": f"不支持的配置项: {config_id!r}(仅支持 reasoning)"}})
+            return
+        level = normalize_reasoning(params.get("value"))
+        if level is None:
+            respond(rid, {"jsonrpc": "2.0", "id": rid,
+                          "error": {"code": -32602,
+                                    "message": f"非法思考档位: {params.get('value')!r}; "
+                                               f"可用={','.join(REASONING_LEVELS)}(别名 off/disabled→none)"}})
+            return
+        if session.get("busy"):
+            respond(rid, {"jsonrpc": "2.0", "id": rid,
+                          "error": {"code": -32000, "message": "session busy: 请先取消或等当前 turn 结束"}})
+            return
+        session["reasoning"] = level
+        log(f"set_config_option {params.get('sessionId')} reasoning -> {level}")
         respond(rid, {"jsonrpc": "2.0", "id": rid, "result": {}})
 
     def session_cancel(self, params):

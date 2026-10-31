@@ -39,9 +39,10 @@ function findPython() {
   return 'python';
 }
 
-// send_via_api.py 和 wb-ui.js 同目录落地；运行时副本目录也按同目录规则查找(WB_SEND_SCRIPT 可覆盖)
+// send_via_api.py 和 wb-ui.js 同目录落地；C:\wb-mesh 那份运行时副本走的也是这条
 function findSendScript() {
   const cands = [path.join(__dirname, 'send_via_api.py'),
+                 'C:/wb-mesh/send_via_api.py',
                  path.join(__dirname, '..', 'send_via_api.py')];
   return cands.find(p => fs.existsSync(p)) || cands[0];
 }

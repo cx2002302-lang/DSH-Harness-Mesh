@@ -35,14 +35,14 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "5.2.1"
+VERSION = "5.2.2"  # 2026-10-31 官方目录缓存改带后缀文件名,通配取最新
 CREATE_NO_WINDOW = 0x08000000  # pythonw 下 subprocess 默认会弹控制台窗口
 
 # 共享文件日志(DSH 侧也能读):生命周期全记录,定位"进程为什么死"
-# 注意 plugs.json 里 ADAPTER_LOG="1" 是"顺手打 stderr"的开关，不是路径；这里只认路径 env，
+# 注意 plugs.json 里 ADAPTER_LOG="1" 是"顺手打 stderr"的开关，不是路径；这里只认 GW_FILE_LOG，
 # 否则日志会写到当前目录下一个名叫 "1" 的文件。
-FILE_LOG = os.environ.get("GW_FILE_LOG") or os.environ.get("ADAPTER_LOG") or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "v5-adapter.log")  # 缺省=脚本同目录;env 可指到任意路径
+FILE_LOG = os.environ.get("GW_FILE_LOG") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "v5-adapter.log")
 
 
 def flog(msg):
@@ -369,10 +369,16 @@ def load_models():
                     file_models.append(mid)
     except Exception:
         pass
-    # 第三源:官方目录缓存 acc-product-config-v3.json .models,只留聊天模型,取显示名 name
+    # 第三源:官方目录缓存 acc-product-config-v3*.json .models,只留聊天模型,取显示名 name。
+    # 2026-10-31:桌面端把缓存改成带 pid+uuid 后缀的多实例文件(acc-product-config-v3-<pid>-<uuid>.json),
+    # 老路径整个消失→官方目录静默丢空。改为通配取 mtime 最新一份(兼容无后缀老名字)。
     dir_models = []
     try:
-        with open(os.path.join(base, ".workbuddy", "cache", "acc-product-config-v3.json"), "r", encoding="utf-8") as f:
+        cache_dir = os.path.join(base, ".workbuddy", "cache")
+        cands = [os.path.join(cache_dir, f) for f in os.listdir(cache_dir)
+                 if f.startswith("acc-product-config-v3") and f.endswith(".json")]
+        cands.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        with open(cands[0], "r", encoding="utf-8") as f:
             models = (json.load(f) or {}).get("models")
         if isinstance(models, list):
             bad_tags = {"text-to-image", "image-to-image", "text-to-video"}

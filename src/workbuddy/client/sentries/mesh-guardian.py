@@ -57,7 +57,7 @@ def _newest(root: Path, exe: str, fallback):
     return str(sorted(vs, key=lambda p: [int(x) for x in re.split(r"[^0-9]+", p.name) if x])[-1] / exe)
 
 
-SHARE = Path(os.environ.get("MG_SHARE") or HERE.parent)   # 共享本机视图;局域网共享盘部署时用 MG_SHARE 指到 <LAN-SHARE> 路径
+SHARE = Path(os.environ.get("MG_SHARE") or HERE.parent)   # 共享本机视图（= \\192.168.9.100\MeshData）
 WB_GREEN = HERE                                           # 状态/日志跟着脚本自己走，不跟共享盘走
 CHANNEL = SHARE / "AI协调频道"
 CHAT_LOG = CHANNEL / "chat.log"

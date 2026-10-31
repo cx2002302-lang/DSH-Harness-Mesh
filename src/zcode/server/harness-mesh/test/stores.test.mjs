@@ -60,19 +60,50 @@ describe("lib/config.js validateNode", () => {
       env: {},
       model: null,
       models: [],
+      capability: null,
+      liveModels: [],
+      liveProbedAt: null,
+      autoCurate: null,
+      thinkingOptions: null,
+      modeOptions: [],
       description: "",
     });
   });
 
-  it("models 白名单:数组透传/去空白/上限 64;非数组或缺省 → []", () => {
+  it("thinkingOptions/modeOptions:归一化 + 旧字段名 thinking/modes 兼容 + 非法剔除", () => {
+    const ok = validateNode("t1", {
+      type: "acp-stdio", command: "opencode",
+      thinkingOptions: { id: "effort", currentValue: "high", options: [{ value: " low " }, { value: "high", name: "高" }, "bad-entry", { value: "" }] },
+      modeOptions: [{ id: "mode", currentValue: "build", options: [{ value: "build" }] }, null, "junk"],
+    });
+    assert.deepEqual(ok.thinkingOptions, { id: "effort", name: null, currentValue: "high", options: [{ value: "low", name: "low" }, { value: "high", name: "高" }, { value: "bad-entry", name: "bad-entry" }] });
+    assert.deepEqual(ok.modeOptions, [{ id: "mode", name: null, currentValue: "build", options: [{ value: "build", name: "build" }] }]);
+    // 旧字段名兼容(存量 nodes.json)
+    const legacy = validateNode("t2", { type: "acp-stdio", command: "opencode", thinking: { id: "effort", options: [{ value: "max" }] }, modes: [] });
+    assert.deepEqual(legacy.thinkingOptions, { id: "effort", name: null, currentValue: null, options: [{ value: "max", name: "max" }] });
+    assert.deepEqual(legacy.modeOptions, []);
+    // 缺省/全非法 → null/[]
+    assert.equal(validateNode("t3", { type: "acp-stdio", command: "opencode" }).thinkingOptions, null);
+    assert.deepEqual(validateNode("t3", { type: "acp-stdio", command: "opencode" }).modeOptions, []);
+    assert.equal(validateNode("t4", { type: "acp-stdio", command: "opencode", thinkingOptions: { id: "e", options: [] } }).thinkingOptions, null);
+  });
+
+  it("models 白名单:数组透传/去空白/上限 160;非数组或缺省 → []", () => {
     const a = validateNode("m1", { type: "acp-stdio", command: "opencode", models: ["glm-5.3", " deepseek-v4.1 ", "", 42, null] });
     assert.deepEqual(a.models, ["glm-5.3", "deepseek-v4.1"]);
     const b = validateNode("m2", { type: "acp-stdio", command: "opencode" });
     assert.deepEqual(b.models, []);
     const c = validateNode("m3", { type: "acp-stdio", command: "opencode", models: "not-array" });
     assert.deepEqual(c.models, []);
-    const big = validateNode("m4", { type: "acp-stdio", command: "opencode", models: Array.from({ length: 100 }, (_, i) => `m${i}`) });
-    assert.equal(big.models.length, 64);
+    const big = validateNode("m4", { type: "acp-stdio", command: "opencode", models: Array.from({ length: 200 }, (_, i) => `m${i}`) });
+    assert.equal(big.models.length, 160);
+  });
+
+  it("autoCurate 三态:false→false / true→true / 未设与非布尔 → null(跟随全局)", () => {
+    assert.equal(validateNode("a1", { type: "acp-stdio", command: "opencode", autoCurate: false }).autoCurate, false);
+    assert.equal(validateNode("a2", { type: "acp-stdio", command: "opencode", autoCurate: true }).autoCurate, true);
+    assert.equal(validateNode("a3", { type: "acp-stdio", command: "opencode" }).autoCurate, null);
+    assert.equal(validateNode("a4", { type: "acp-stdio", command: "opencode", autoCurate: "yes" }).autoCurate, null);
   });
 
   it("acp-plug 正常路径:command 默认空串,address/plugId/socks/cwd/model/description 透传", () => {
@@ -179,16 +210,17 @@ describe("lib/config.js validateNode", () => {
 });
 
 describe("lib/config.js normalizeConfig", () => {
-  it("空对象 → 全默认值(defaultTimeoutMs=600000 / harnesses={} / modelBridge.enable=false)", () => {
+  it("空对象 → 全默认值(defaultTimeoutMs=600000 / harnesses={} / modelBridge.enable=false / capabilityRefresh 默认开)", () => {
     assert.deepEqual(normalizeConfig({}), {
       defaultTimeoutMs: 600000,
       harnesses: {},
       modelBridge: { enable: false },
+      capabilityRefresh: { enable: true, intervalMs: 300000, autoCurate: true },
     });
   });
 
   it("undefined / null config → 同样默认值(不抛错)", () => {
-    const expected = { defaultTimeoutMs: 600000, harnesses: {}, modelBridge: { enable: false } };
+    const expected = { defaultTimeoutMs: 600000, harnesses: {}, modelBridge: { enable: false }, capabilityRefresh: { enable: true, intervalMs: 300000, autoCurate: true } };
     assert.deepEqual(normalizeConfig(undefined), expected);
     assert.deepEqual(normalizeConfig(null), expected);
   });
@@ -346,7 +378,8 @@ describe("lib/nodes-store.js NodesStore", () => {
     const input = { name: "x", type: "acp-stdio", command: "c" };
     const out = store.save(input);
     assert.notEqual(out, input); // 返回的是归一化后的新对象
-    assert.deepEqual(out, validateNode("x", input));
+    // 思考档位字段(2026-10-30 思考档位全链):validateNode 归一化,缺省 thinkingOptions=null/modeOptions=[]
+    assert.deepEqual(out, { ...validateNode("x", input), thinkingOptions: null, modeOptions: [] });
     assert.deepEqual(store.get("x"), out);
     const payload = JSON.parse(readFileSync(file, "utf8"));
     assert.equal(payload.version, 1);

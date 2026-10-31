@@ -538,7 +538,83 @@ describe("newSession", () => {
     const reqNew = await agent.waitFor((m) => m.method === "session/new");
     agent.respond(reqNew, { sessionId: "sess-m3" });
     const r = await p;
-    assert.deepEqual(r, { models: [], currentModelId: null });
+    assert.deepEqual(r, { models: [], currentModelId: null, thinking: null, modes: [] });
+  });
+
+  test("listThinking:thought_level+mode 存在 → 解析两类配置(id/name/currentValue/options)", async () => {
+    const { adapter, agent } = await boot();
+    const p = adapter.listThinking("/repo");
+    const reqNew = await agent.waitFor((m) => m.method === "session/new");
+    agent.respond(reqNew, {
+      sessionId: "sess-th1",
+      configOptions: [
+        { id: "effort", category: "thought_level", name: "思考深度", currentValue: "high",
+          options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }, { value: "max", name: "Max" }] },
+        { id: "mode", category: "mode", currentValue: "build", options: [{ value: "build", name: "Build" }, { value: "plan", name: "Plan" }] },
+      ],
+    });
+    const r = await p;
+    assert.deepEqual(r.thinking, {
+      id: "effort", name: "思考深度", currentValue: "high",
+      options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }, { value: "max", name: "Max" }],
+    });
+    assert.deepEqual(r.modes, [{ id: "mode", name: "mode", currentValue: "build", options: [{ value: "build", name: "Build" }, { value: "plan", name: "Plan" }] }]);
+  });
+
+  test("listThinking:无 thought_level/mode → 返回 null", async () => {
+    const { adapter, agent } = await boot();
+    const p = adapter.listThinking("/repo");
+    const reqNew = await agent.waitFor((m) => m.method === "session/new");
+    agent.respond(reqNew, { sessionId: "sess-th2", configOptions: [{ id: "model", category: "model", options: [{ value: "x" }] }] });
+    assert.equal(await p, null);
+  });
+
+  test("newSession thinking:{configId,value} → session/set_config_option 收到 {sessionId,configId,value}", async () => {
+    const { adapter, agent } = await boot();
+    const p = adapter.newSession("/repo", undefined, { configId: "effort", value: "high" });
+    const reqNew = await agent.waitFor((m) => m.method === "session/new");
+    agent.respond(reqNew, { sessionId: "sess-tk1", configOptions: [{ id: "effort", category: "thought_level", options: [{ value: "high" }] }] });
+    const reqCfg = await agent.waitFor((m) => m.method === "session/set_config_option");
+    assert.deepEqual(reqCfg.params, { sessionId: "sess-tk1", configId: "effort", value: "high" });
+    agent.respond(reqCfg, {});
+    assert.equal(await p, "sess-tk1");
+  });
+
+  test("newSession thinking:裸字符串 value → 默认取第一个 thought_level 的 id", async () => {
+    const { adapter, agent } = await boot();
+    const p = adapter.newSession("/repo", undefined, "max");
+    const reqNew = await agent.waitFor((m) => m.method === "session/new");
+    agent.respond(reqNew, {
+      sessionId: "sess-tk2",
+      configOptions: [
+        { id: "mode", category: "mode", options: [{ value: "build" }] },
+        { id: "thinking", category: "thought_level", options: [{ value: "max" }] },
+      ],
+    });
+    const reqCfg = await agent.waitFor((m) => m.method === "session/set_config_option");
+    assert.deepEqual(reqCfg.params, { sessionId: "sess-tk2", configId: "thinking", value: "max" });
+    agent.respond(reqCfg, {});
+    assert.equal(await p, "sess-tk2");
+  });
+
+  test("newSession thinking:session/set_config_option 失败 → 可读错误(带节点名/configId/value/原因)", async () => {
+    const { adapter, agent } = await boot({ name: "kimicode" });
+    const p = adapter.newSession("/repo", undefined, { configId: "thinking", value: "low" });
+    const reqNew = await agent.waitFor((m) => m.method === "session/new");
+    agent.respond(reqNew, { sessionId: "sess-tk3", configOptions: [{ id: "thinking", category: "thought_level", options: [{ value: "low" }] }] });
+    const reqCfg = await agent.waitFor((m) => m.method === "session/set_config_option");
+    agent.fail(reqCfg, { code: -32001, message: "bad value" });
+    await assert.rejects(p, /harness-mesh: 节点 kimicode 设置思考档位 thinking=low 失败: bad value/);
+  });
+
+  test("newSession thinking:节点无 thought_level 配置 → 明确报错,不发 set_config_option", async () => {
+    const { adapter, agent } = await boot();
+    const p = adapter.newSession("/repo", undefined, "high");
+    const reqNew = await agent.waitFor((m) => m.method === "session/new");
+    agent.respond(reqNew, { sessionId: "sess-tk4" });
+    await assert.rejects(p, /不支持思考档位/);
+    await flush();
+    assert.equal(agent.count("session/set_config_option"), 0);
   });
 
   test("未启动时 newSession 自动 ensureRunning", async () => {

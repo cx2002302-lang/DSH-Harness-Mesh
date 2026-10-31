@@ -13,13 +13,13 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-CHAT = Path(os.environ.get("DSH_CHANNEL", "${DSH_DATA:-/srv/dsh-data}/AI协调频道/chat.log"))
+CHAT = Path(os.environ.get("DSH_CHANNEL", "/home/user/MeshData/AI协调频道/chat.log"))
 
 
 def main():
     args = sys.argv[1:]
     speaker = "主控侧(DSH)"
-    if args and args[-1] in ("WorkBuddy", "主控侧(DSH)", "管理员", "zcode"):
+    if args and args[-1] in ("WorkBuddy", "主控侧(DSH)", "主控", "zcode"):
         speaker = args.pop()
     if args and args[0] == "-f":
         body = Path(args[1]).read_text(encoding="utf-8")

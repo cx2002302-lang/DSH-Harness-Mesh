@@ -124,6 +124,22 @@ test("GET /nodes:返回原始节点 + target/health/running 标注", async () =>
   assert.match(new Request("http://x").url, /x/); // 防 lint 空转
 });
 
+test("GET /nodes:透传 thinking/modes(前端思考档位/模式下拉用)", async () => {
+  const { handler, nodes, dispose } = await setup();
+  nodes.list().length = 0;
+  nodes.list().push({
+    name: "oc", type: "acp-stdio", command: "opencode", models: ["m1"],
+    thinking: { id: "effort", currentValue: "low", options: [{ value: "low" }, { value: "high" }, { value: "max" }] },
+    modes: [{ id: "mode", name: "模式", currentValue: "build" }],
+  });
+  const { status, body } = await j(await handler(new Request("http://127.0.0.1/api/harness-mesh/nodes")));
+  assert.equal(status, 200);
+  const oc = body.nodes.find((n) => n.name === "oc");
+  assert.deepEqual(oc.thinking, { id: "effort", currentValue: "low", options: [{ value: "low" }, { value: "high" }, { value: "max" }] });
+  assert.deepEqual(oc.modes, [{ id: "mode", name: "模式", currentValue: "build" }]);
+  await dispose();
+});
+
 test("GET /nodes:最近任务 succeeded → health=idle;failed → down", async () => {
   const { handler } = await setup();
   const { body } = await j(await handler(new Request("http://127.0.0.1/api/harness-mesh/nodes")));

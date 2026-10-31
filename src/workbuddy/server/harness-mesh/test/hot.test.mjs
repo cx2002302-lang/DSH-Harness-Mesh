@@ -4,7 +4,7 @@
  *  os.tmpdir() 的 mkdtemp 临时目录(TEAM_FILE/CONFIRM_FILE 在模块加载时定型,必须先设 env 再 import)。
  *  不碰网络、不开端口。运行:node --test test/hot.test.mjs
  */
-import { test, after } from "node:test";
+import { test, after, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +13,21 @@ import { join } from "node:path";
 // ---- 先定 DSH_HOME 再动态 import(模块顶层的 TEAM_FILE/CONFIRM_FILE/CONTROL_LOG 依赖它) ----
 const TMP = mkdtempSync(join(tmpdir(), "hot-test-"));
 process.env.DSH_HOME = TMP;
+
+// mock child_process:fs_* 工具经 hot.js 走 lib/fs-tools.js 的 smbclient 封装,
+// 测试不碰网络——必须在 import hot.js(连带 fs-tools.js)之前注册模块 mock。
+const smbCalls = []; // 每项 { file, args, opts }
+let smbScript = { stdout: "" };
+const fakeSmbExecFile = (file, args, opts, cb) => {
+  smbCalls.push({ file, args, opts });
+  const s = typeof smbScript === "function" ? smbScript(smbCalls.length) : smbScript;
+  if (s.stderr) { const e = new Error("smbclient failed"); cb(e, s.stdout ?? "", s.stderr); return; }
+  cb(null, s.stdout ?? "", "");
+};
+mock.module("node:child_process", {
+  namedExports: { execFile: fakeSmbExecFile, default: { execFile: fakeSmbExecFile } },
+});
+
 const { handle } = await import("../lib/hot.js");
 const { validateNode } = await import("../lib/config.js");
 
@@ -24,10 +39,10 @@ const CONTROL_LOG = join(MESH_DIR, "session-control.log");
 after(() => { rmSync(TMP, { recursive: true, force: true }); });
 
 // ---- 桩工厂 ----
-const req = (path, { method = "GET", body, query = "" } = {}) => ({
+const req = (path, { method = "GET", body, query = "", headers = {} } = {}) => ({
   url: `http://127.0.0.1${path}${query}`,
   method,
-  headers: { get: () => null },
+  headers: { get: (name) => headers[name.toLowerCase()] ?? null },
   __body: body === undefined ? null : JSON.stringify(body),
 });
 
@@ -345,14 +360,112 @@ test("MCP:非 POST 405;坏 JSON -32700;notification(id 缺)202;ping;未知 metho
   assert.equal((await mcpErr(unknown)).code, -32601);
 });
 
+test("MCP Bearer 通道(R1):对 token 200 / 错 token 401 / token 未设置时带头 401 / 无头不受影响", async () => {
+  const mesh = makeMesh();
+  const msg = { jsonrpc: "2.0", id: 1, method: "initialize", params: {} };
+  const call = (headers) => handle(req("/api/mcp/harness-mesh", { method: "POST", body: msg, headers }), deps(mesh));
+
+  const prev = process.env.MESH_MCP_TOKEN;
+  try {
+    process.env.MESH_MCP_TOKEN = "test-token-abcdef";
+    const ok = await call({ authorization: "Bearer test-token-abcdef" });
+    assert.equal(ok.status, 200);
+    assert.equal((await bodyOf(ok)).result.serverInfo.name, "harness-mesh");
+
+    const bad = await call({ authorization: "Bearer wrong-token" });
+    assert.equal(bad.status, 401);
+
+    const garbage = await call({ authorization: "Basic dXNlcjpwd2Q=" });
+    assert.equal(garbage.status, 401);
+
+    // admin 入口同样受控
+    const badAdmin = await handle(req("/api/mcp/harness-mesh-admin", { method: "POST", body: msg, headers: { authorization: "Bearer nope" } }), deps(mesh));
+    assert.equal(badAdmin.status, 401);
+
+    // 无 Authorization 头:行为同旧(cookie 路径),不受 token 设置影响
+    const noHeader = await call({});
+    assert.equal(noHeader.status, 200);
+
+    delete process.env.MESH_MCP_TOKEN;
+    const closed = await call({ authorization: "Bearer test-token-abcdef" });
+    assert.equal(closed.status, 401); // 通道关闭:任何 Bearer 都不认
+    const noHeaderClosed = await call({});
+    assert.equal(noHeaderClosed.status, 200);
+  } finally {
+    if (prev === undefined) delete process.env.MESH_MCP_TOKEN;
+    else process.env.MESH_MCP_TOKEN = prev;
+  }
+});
+
 test("MCP tools/list:客户端入口不含 admin 工具,admin 入口含", async () => {
   const client = await bodyOf(await mcpCall("/api/mcp/harness-mesh", { jsonrpc: "2.0", id: 1, method: "tools/list" }, makeMesh()));
   const names = client.result.tools.map((t) => t.name);
+  assert.equal(names.length, 16); // 8 个 harness_* + 8 个 fs_*
+  const fsNames = names.filter((n) => n.startsWith("fs_"));
+  assert.deepEqual(fsNames, ["fs_team_init", "fs_team_verify", "fs_list", "fs_read", "fs_write", "fs_upload", "fs_download", "fs_remove"]);
+  for (const t of client.result.tools.filter((t) => t.name.startsWith("fs_"))) {
+    assert.ok(t.description && t.inputSchema?.type === "object", `fs_ 工具 ${t.name} 缺 description/inputSchema`);
+  }
   assert.ok(names.includes("harness_list") && names.includes("harness_help"));
   assert.ok(!names.includes("harness_team"));
   const admin = await bodyOf(await mcpCall("/api/mcp/harness-mesh-admin", { jsonrpc: "2.0", id: 1, method: "tools/list" }, makeMesh()));
   assert.ok(admin.result.tools.map((t) => t.name).includes("harness_team"));
 });
+
+test("MCP initialize:contractVersion 升到 hm-3,unified 含 fs_ 工具", async () => {
+  const init = await bodyOf(await mcpCall("/api/mcp/harness-mesh", { jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, makeMesh()));
+  assert.equal(init.result.contractVersion, "hm-3");
+  assert.ok(init.result.unified.includes("fs_team_init"));
+  assert.ok(init.result.unified.includes("fs_team_verify"));
+  assert.ok(init.result.extended.includes("harness_team"));
+});
+
+test("MCP tools/call:fs_team_init 路由到 fs-tools handler(mock smbclient,建骨架 + 团队文档)", async () => {
+  smbCalls.length = 0;
+  // 第 1 次调用:探测 NOT_FOUND(新项目)→ 后续 mkdir/put 全成功
+  smbScript = (n) => (n === 1 ? { stderr: "NT_STATUS_OBJECT_NAME_NOT_FOUND listing \\projects\\demo\\*", stdout: "" } : { stdout: "" });
+  const res = await mcpCall("/api/mcp/harness-mesh", { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "fs_team_init", arguments: { project: "demo", members: ["kimi"] } } }, makeMesh());
+  assert.equal(res.status, 200);
+  const out = await mcpText(res);
+  assert.equal(out.ok, true);
+  assert.equal(out.project, "demo");
+  assert.deepEqual(out.created, [
+    "projects", "projects/demo", "projects/demo/shared", "projects/demo/members", "projects/demo/members/kimi",
+    "projects/demo/shared/TEAM.md", "projects/demo/members/kimi/README.md",
+  ]);
+  assert.deepEqual(out.skipped, []);
+  assert.equal(smbCalls[0].file, "smbclient");
+  assert.ok(smbCalls[1].args[6].includes('mkdir "projects/demo/members/kimi"'));
+  assert.ok(smbCalls.at(-1).args[6].includes('"projects/demo/shared/TEAM.md"'));
+  assert.ok(smbCalls.at(-1).args[6].includes('"projects/demo/members/kimi/README.md"'));
+
+  // fs_team_verify 也走同一条 fs_ 路由(mock:shared+TEAM.md+成员 README 全在)
+  smbCalls.length = 0;
+  const ls = (pairs) => pairs.map(([n, t]) => `  ${n.padEnd(36)}${t.padEnd(9)}       0  Tue Jan  2 03:04:05 2024`).join("\n");
+  const queue = [
+    { stdout: ls([["shared", "D"], ["members", "D"]]) },
+    { stdout: ls([["TEAM.md", "A"]]) },
+    { stdout: ls([["kimi", "D"]]) },
+    { stdout: ls([["README.md", "A"]]) },
+  ];
+  smbScript = () => queue.shift() ?? { stdout: "" };
+  const vr = await mcpText(await mcpCall("/api/mcp/harness-mesh", { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "fs_team_verify", arguments: { path: "projects/demo", members: ["kimi"] } } }, makeMesh()));
+  assert.equal(vr.ok, true);
+  assert.ok(Array.isArray(vr.checks) && vr.checks.every((c) => c.pass === true));
+  assert.ok(vr.checks.some((c) => c.name === "members_align"));
+
+  // fs_ 路径沙箱拒绝 → 折成 {ok:false,error:{...}},不发起 smb 调用
+  smbCalls.length = 0;
+  const bad = await mcpText(await mcpCall("/api/mcp/harness-mesh", { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "fs_read", arguments: { path: "../../etc/passwd" } } }, makeMesh()));
+  assert.equal(bad.ok, false);
+  assert.match(bad.error.message, /绝对路径|\.\./);
+  assert.equal(smbCalls.length, 0);
+
+  // 未知 fs_ 名 → unknown tool
+  const ghost = await mcpCall("/api/mcp/harness-mesh", { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "fs_nope", arguments: {} } }, makeMesh());
+  assert.match((await mcpErr(ghost)).message, /unknown tool/);
+});
+
 
 test("MCP tools/call:admin 工具在客户端入口被拒(-32601);unknown tool -32000;harness_help/harness_tools/harness_config", async () => {
   const mesh = makeMesh();

@@ -5,6 +5,7 @@
  */
 import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
 import { validateNode } from "./config.js";
+import { FS_TOOL_DEFS, createFsTools } from "./fs-tools.js";
 
 const AI_SYSTEM = [
   "你是 harness 组网节点的配置生成器。根据用户的自然语言描述,产出一个节点配置 JSON。",
@@ -27,6 +28,8 @@ const CLIENT_TOOLS = [
   { name: "harness_config", description: "持久设置某个节点的默认模型(写节点表,重启不丢);model 传空串或 default 恢复被控默认", inputSchema: { type: "object", properties: { harness: { type: "string", description: "节点名" }, model: { type: "string", description: "模型标识(provider/model);空串或 default = 恢复被控默认" } }, required: ["harness", "model"] } },
   { name: "harness_help", description: "按需获取某个工具的完整用法(参数/示例/SOP/排错);不带参数则返回全部工具的速览。首次使用某工具前建议先查它", inputSchema: { type: "object", properties: { tool: { type: "string", description: "工具名,如 harness_dispatch;空=全部速览" } } } },
   { name: "harness_tools", description: "查看某个 harness 的专属工具(如 workbuddy 的 wb_info):返回工具名+参数格式;查不存在的 harness 会返回已支持的列表", inputSchema: { type: "object", properties: { harness: { type: "string", description: "harness 名:workbuddy/kimi/zcode/opencode/dsh;空=返回全部已配专属工具的 harness" } } } },
+  // 团队文件服务器工具组(定义唯一来源 lib/fs-tools.js;tools/call 走 fs_ 前缀路由)
+  ...FS_TOOL_DEFS,
 ];
 
 /** 渐进披露内容库:工具的完整用法(不在 tools/list 里常驻,靠 harness_help 按需拉)。
@@ -39,6 +42,15 @@ const HELP_DOCS = {
   harness_cancel: "停止运行中任务。参数:{task_id}。仅对 running/queued 有效;返回{state:cancelling}。停止后未保存进度丢失。",
   harness_config: "持久设置节点默认模型。参数:{harness(必填,节点名), model(必填,模型标识如 opencode/deepseek-v4.1-flash;空串或 default = 恢复被控 harness 自己的默认)}。写节点表,重启不丢,对后续 dispatch 立即生效。注意:模型是否真生效取决于被控 harness 是否实现 session/set_model(有的实现对不认识的方法/模型 ID 会报错,任务会失败——设完先派个小任务验证)。",
   harness_help: "本工具。带 tool 参数返回该工具完整用法;不带则返回全部速览。",
+  // ---- 团队文件服务器工具组(错误码统一:{ok:false,error:{code,message}};code: FS_ERROR/SMB_ERROR/EXEC_ERROR/ETOOLARGE) ----
+  fs_team_init: "建项目目录骨架 + 团队文档(幂等)。参数:{project(必填,单段路径,不允许 / 或 ..), members(必填,string 数组,每人一个私人区)}。示例:{project:'demo', members:['kimi','opencode']}。自动写 shared/TEAM.md 名册和每成员 README.md;已存在的目录/文件不覆盖(保护用户改动)。返回{ok,project,members,created[],skipped[]}:created=本次新建,skipped=已存在跳过。",
+  fs_team_verify: "项目目录体检。参数:{path(必填,形如 projects/<p>), members(可选,string 数组;不给则按 members/ 现有目录核对)}。示例:{path:'projects/demo', members:['kimi','opencode']}。校验 shared/、TEAM.md、members/ 与清单对齐(多报/少报都列出)、每成员 README.md。返回{ok,checks:[{name,pass,detail}]} 结构化报告——别只看 ok,逐条看 checks。",
+  fs_list: "列共享根内某个目录。参数:{path(必填,共享根内相对路径,如 projects/demo/shared)}。示例:{path:'projects/demo/shared'}。返回{ok,path,entries:[{name,type:'dir'|'file',size}]}。路径含 .. 或绝对路径报 FS_ERROR。",
+  fs_read: "读共享根内文本文件,上限 256KB。参数:{path(必填,相对路径,指向文件)}。示例:{path:'projects/demo/shared/note.md'}。返回{ok,path,bytes,content}。超限报 code=ETOOLARGE,改用 fs_download。",
+  fs_write: "写文本到共享根(覆盖写)。参数:{path(必填,目标文件相对路径), content(必填,UTF-8 文本)}。示例:{path:'projects/demo/shared/note.md', content:'hello'}。返回{ok,path,bytes}。父目录需已存在,没有先 fs_team_init。",
+  fs_upload: "本机文件 → 共享根。参数:{local(必填,本机文件路径,不经沙箱), remote(必填,目标相对路径)}。示例:{local:'/tmp/a.bin', remote:'inbox/a.bin'}。返回{ok,remote,local:''}。",
+  fs_download: "共享根 → 本机(大文件优先走它,fs_read 有 256KB 上限)。参数:{remote(必填,源文件相对路径), local(必填,本机目标路径)}。示例:{remote:'projects/demo/shared/big.bin', local:'/tmp/big.bin'}。返回{ok,remote,local}。",
+  fs_remove: "删除共享根内文件或目录(先探测类型:文件 del、目录 rmdir)。参数:{path(必填,相对路径), recursive(可选,允许递归删非空目录)}。示例:{path:'projects/demo/shared/old.txt'} 或 {path:'projects/demo/old', recursive:true}。返回{ok,path,removed,removedCount}。删除不可恢复,调用前向用户确认;非空目录不加 recursive 报 ENOTEMPTY,路径不存在报 ENOENT。",
   _sop: "标准流程:harness_list 选节点 → harness_dispatch(拿 task_id)→ 每隔几秒 harness_status 到终态 → harness_result 拿汇报 → 汇总给你的用户。纪律:task_id 原样传;prompt 自包含;pending_permission 等待而非重派;一次派一个(要多节点并行找主控侧开团)。",
 };
 
@@ -60,6 +72,25 @@ const ADMIN_ONLY = new Set(ADMIN_EXT_TOOLS.map((t) => t.name));
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { loadHarnessTools, availableHarnesses, resolveTool } from "./harness-tools/index.js";
 import { join } from "node:path";
+import { timingSafeEqual } from "node:crypto";
+
+/** 服务间 Bearer 通道(R1):/api/mcp/harness-mesh(-admin)在 GUI cookie 之外接受
+ *  Authorization: Bearer <MESH_MCP_TOKEN>(外层 dsh-client-connection requestRejection
+ *  的本地热修已放行匹配请求,此处兜底二次校验——带 Authorization 但 token 不对 → 401;
+ *  MESH_MCP_TOKEN 未设置 → Bearer 通道关闭,无 Authorization 头的请求行为同旧)。 */
+const MCP_PATHS = new Set(["/api/mcp/harness-mesh", "/api/mcp/harness-mesh-admin"]);
+/** 有 Authorization 头时校验;返回 undefined 表示放行(无头/合法 Bearer),字符串为拒绝原因。 */
+function bearerRejection(request) {
+  const auth = request.headers.get("authorization");
+  if (auth === null) return undefined;
+  const expected = process.env.MESH_MCP_TOKEN ?? "";
+  const got = /^Bearer\s+(.+)$/s.exec(auth)?.[1] ?? "";
+  if (expected === "" || got.length !== expected.length ||
+      !timingSafeEqual(Buffer.from(got, "utf8"), Buffer.from(expected, "utf8"))) {
+    return "unauthorized: invalid bearer token";
+  }
+  return undefined;
+}
 
 const TEAM_FILE = join(process.env.DSH_HOME ?? "/root/.dreamx", "harness-mesh", "team-roles.json");
 const CONFIRM_FILE = join(process.env.DSH_HOME ?? "/root/.dreamx", "harness-mesh", "session-confirms.json");
@@ -92,6 +123,14 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
   const url0 = new URL(request.url);
   const path = url0.pathname;
 
+  // ---- MCP 路由 Bearer 通道(R1):带错 token → 401;合法/无头 → 照旧往下走 ----
+  if (MCP_PATHS.has(path)) {
+    const reject = bearerRejection(request);
+    if (reject !== undefined) {
+      return json({ jsonrpc: "2.0", id: null, error: { code: -32000, message: reject } }, 401);
+    }
+  }
+
   // ---- DSB 登录地址(2026-10-19)----
   // 背景:DSB 是独立 DSH 实例,auth cookie 按实例签名,主 GUI 的 cookie 它不认;
   // 页面侧又拿不到 token(303 后 URL 已抹、cookie HttpOnly)。由服务端出一次性登录 URL:
@@ -118,7 +157,7 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
   // 实现注意(2026-10-20):不走 mesh 方法——mesh 实例是启动时的,不热加载;
   // 用 nodes 存取 + 适配器类热加载(与 mesh.js 同一套 loadAdapterClass),
   // 起一次性适配器实例探测完即 dispose,改代码/加机型全部零重启。
-  const probeModels = async (name) => {
+  const probeModels = async (name, raw = false) => {
     const node = nodes.get(name);
     if (!node) return json({ ok: false, error: `节点 "${name}" 不存在` }, 404);
     try {
@@ -135,7 +174,15 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
       });
       try {
         const r = await adapter.listModels(node.cwd ?? undefined);
-        return json({ ok: true, name, models: r.models, currentModelId: r.currentModelId });
+        if (raw) {
+          const res = adapter.lastSessionNewRes ?? {};
+          return json({ ok: true, name, models: r.models, currentModelId: r.currentModelId,
+            thinking: r.thinking ?? null, modes: r.modes ?? [],
+            keys: Object.keys(res),
+            modelsField: res.models ?? null,
+            configOptions: res.configOptions ?? null });
+        }
+        return json({ ok: true, name, models: r.models, currentModelId: r.currentModelId, thinking: r.thinking ?? null, modes: r.modes ?? [] });
       } finally {
         await adapter.dispose().catch(() => {});
       }
@@ -145,7 +192,7 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
   };
   if (path === "/api/harness-mesh/probe-models" && request.method === "POST") {
     const body = await readJson(request);
-    return probeModels(String(body.name ?? ""));
+    return probeModels(String(body.name ?? ""), !!body.raw);
   }
 
   // ---- 节点 CRUD ----
@@ -209,6 +256,7 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
         cwd: body.cwd,
         timeoutMs: body.timeoutMs,
         model: typeof body.model === "string" ? body.model : undefined,
+        thinking: body.thinking ?? undefined,
         deny: body.deny,
         origin: typeof body.origin === "string" ? body.origin : undefined,
       });
@@ -356,7 +404,7 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
     const mcpCall = async (name, args) => {
       if (name === "harness_list") return mesh.listNodes();
       if (name === "harness_dispatch") {
-        const task = await mesh.dispatch({ harness: String(args.harness ?? ""), prompt: String(args.prompt ?? ""), cwd: args.cwd, timeoutMs: args.timeoutMs, model: typeof args.model === "string" ? args.model : undefined, origin: typeof args.origin === "string" ? args.origin : undefined });
+        const task = await mesh.dispatch({ harness: String(args.harness ?? ""), prompt: String(args.prompt ?? ""), cwd: args.cwd, timeoutMs: args.timeoutMs, model: typeof args.model === "string" ? args.model : undefined, thinking: args.thinking ?? undefined, origin: typeof args.origin === "string" ? args.origin : undefined });
         return { task_id: task.task_id, state: task.state, model: task.model ?? null, hint: "用 harness_status 跟进,终态后用 harness_result 取汇报" };
       }
       if (name === "harness_tasks") {
@@ -477,6 +525,16 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
         };
       }
       // 专属工具路由(公用名之外的,如 wb_info)
+      // fs_* 团队文件服务器工具:在 COMMON 判断之前直连 fs-tools handler
+      // (handler 只收 args,上下文参数为预留签名,现状被忽略)
+      if (name.startsWith("fs_")) {
+        // {name,description,inputSchema,handler} MCP 形状:从 fs-tools 的 defineTool 派生(定义唯一来源)
+        const fsTool = createFsTools()
+          .map((t) => ({ name: t.name, inputSchema: t.parameters, execute: t.execute }))
+          .find((t) => t.name === name);
+        if (!fsTool) throw new Error(`unknown tool: ${name}(fs_ 工具清单见 tools/list 或 harness_help)`);
+        return await fsTool.execute(args ?? {});
+      }
       {
         const COMMON = new Set([...CLIENT_TOOLS.map((t) => t.name), ...ADMIN_EXT_TOOLS.map((t) => t.name)]);
         if (!COMMON.has(name)) {
@@ -538,7 +596,7 @@ export async function handle(request, { ctx, mesh, nodes, json, readJson }) {
             // 接口契约(客户端对齐用,见《harness-mesh 接口契约》):
             // contractVersion 变更规则=只增不改;客户端拿到的 unified 工具集与
             // 服务端不一致时,应提示对齐而不是硬调(防"服务端改了客户端错乱")。
-            contractVersion: "hm-1",
+            contractVersion: "hm-3",
             unified: CLIENT_TOOLS.map((t) => t.name),   // 统一层工具(语义冻结)
             extended: ADMIN_EXT_TOOLS.map((t) => t.name), // 管理层工具(admin 入口)
           },

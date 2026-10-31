@@ -248,7 +248,7 @@ window.__ModuleLoader__.load({
     function IconMenu() {
       const s = useStore();
       if (!s.menuOpen || s.open) return null;
-      // 向上展开(bottom 锚定=原始正确方向;管理员 10-18 反馈)
+      // 向上展开(bottom 锚定=原始正确方向;主控 10-18 反馈)
       const r = s.anchorRect;
       const vw = (typeof window !== "undefined" && window.innerWidth) || 1280;
       const vh = (typeof window !== "undefined" && window.innerHeight) || 800;
@@ -278,7 +278,7 @@ window.__ModuleLoader__.load({
         React.createElement("div", { style: { borderTop: "1px solid rgba(128,128,128,.14)" } },
           React.createElement("button", { style: item, onClick: () => openView("nodes", "配置") }, "⚙ 配置 · 节点管理"),
         ),
-        // 最底行:📋 项目管理(原输入栏 project-hub 图标并入此处,管理员 10-18 定位置;
+        // 最底行:📋 项目管理(原输入栏 project-hub 图标并入此处,主控 10-18 定位置;
         // 转派=程序化点击 project-hub 图标按钮,其面板/状态逻辑仍归它自己)
         React.createElement("div", { style: { borderTop: "1px solid rgba(128,128,128,.14)" } },
           React.createElement("button", { style: item, onClick: () => {
@@ -597,13 +597,20 @@ window.__ModuleLoader__.load({
       const listed = new Map();
       for (const m of probe?.models ?? []) listed.set(m.modelId, m.name);
       for (const id of models) if (!listed.has(id)) listed.set(id, id);
-      return React.createElement("div", null,
+      // 第二行小字:type · address#plugId;无 address 的节点(如 acp-stdio)只显 type · command
+      const meta = n.address
+        ? `${n.type} · ${n.address}${n.plugId ? `#${n.plugId}` : ""}`
+        : `${n.type}${n.command ? ` · ${n.command}` : ""}`;
+      // 思考档位 chips(2026-10-30 思考档位全链):探测出 thinkingOptions 才显示,如 思考:low/high/max
+      const thinkValues = Array.isArray(n.thinkingOptions?.options)
+        ? n.thinkingOptions.options.map((o) => (typeof o === "string" ? o : o?.value)).filter((v) => typeof v === "string" && v)
+        : [];
+      return React.createElement("div", { style: { padding: "2px 0", borderBottom: "1px solid rgba(255,255,255,.06)" } },
         React.createElement("div", { style: C.row },
           React.createElement("span", { style: { cursor: "pointer", userSelect: "none", opacity: .75, flex: "none", width: 14 }, title: "展开/折叠可用模型", onClick: () => setOpen(!open) }, open ? "▾" : "▸"),
-          React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer", flex: "1 1 auto", minWidth: 0 }, onClick: () => setOpen(!open) },
-            n.name, " ",
-            React.createElement("span", { style: { opacity: .55, fontSize: 11 } }, `${n.type} · ${n.target} · ${n.command}${n.args?.length ? ` ${n.args.join(" ")}` : ""}${models.length ? ` · 模型${models.length}选` : ""}${n.running ? ` · 在跑${n.running}` : ""}`),
-          ),
+          React.createElement("span", { style: { fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer", flex: "1 1 auto", minWidth: 0 }, onClick: () => setOpen(!open) }, n.name),
+          models.length ? React.createElement("span", { style: { flex: "none", fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "rgba(88,166,255,.15)", color: "#8ab4ff", cursor: "pointer" }, title: "可用模型白名单数", onClick: () => setOpen(!open) }, `模型${models.length}选`) : null,
+          n.running ? React.createElement("span", { style: { flex: "none", fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "rgba(63,185,80,.15)", color: "#3fb950" } }, `在跑${n.running}`) : null,
           React.createElement("span", { style: { flex: "none", display: "flex", gap: 4 } },
             React.createElement("button", { style: C.btn, onClick: () => store.set({ editing: { ...n, args: (n.args ?? []).join(" "), envText: Object.entries(n.env ?? {}).map(([k, v]) => `${k}=${v}`).join("\n") } }) }, "编辑"),
             React.createElement("button", { style: { ...C.btn, color: "#e5534b" }, onClick: async () => {
@@ -611,6 +618,10 @@ window.__ModuleLoader__.load({
               try { await api.removeNode(n.name); await refreshNodes(); } catch (error) { store.set({ err: String(error?.message ?? error) }); }
             } }, "删除"),
           ),
+        ),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, padding: "1px 0 2px 26px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+          React.createElement("span", { style: { opacity: .5, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis" } }, meta),
+          thinkValues.length ? React.createElement("span", { style: { flex: "none", fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "rgba(210,153,34,.18)", color: "#d29922" }, title: `思考档位(${n.thinkingOptions.name || n.thinkingOptions.id || "thought_level"})` }, `思考:${thinkValues.join("/")}`) : null,
         ),
         open ? React.createElement("div", { style: { padding: "4px 8px 9px 26px" } },
           React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 4 } },
@@ -724,9 +735,9 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // ==================== 侧栏图标坞(H 版:2026-10-18 管理员确认的形态) ====================
+    // ==================== 侧栏图标坞(H 版:2026-10-18 主控确认的形态) ====================
     // 形态:侧栏目标条目(OpenDesign/折叠)压成仅图标+悬停文本;整组网格排列;
-    // 插件图标接在其后:机器人第三(跳 GitHub),⚡控制台/📋驾驶舱随后。
+    // DeepSeekBot 使用原生面板按钮,在当前 DSH 页面内切换。
     // ★安全纪律(凌晨崩溃根因):MutationObserver 回调【绝不重置已追加标记】;
     // 追加每 nav 实例只做一次;回调只做属性变异;500 次熔断兜底。
     function installSidebarDock() {
@@ -741,8 +752,12 @@ window.__ModuleLoader__.load({
         st.id = styleId;
         st.textContent = `
 [data-hm-dock-grid]{display:grid !important;grid-template-columns:repeat(${COLS},1fr) !important;gap:10px;padding:6px 4px;justify-items:center;align-items:center}
+[data-hm-dock-grid] > [data-bh-tour="bot-mode"]{grid-row:1 !important;grid-column:3 !important;width:46px !important;min-width:0 !important;padding:0 !important;background:transparent !important;position:relative !important;overflow:hidden !important}
+[data-hm-dock-grid] > [data-bh-tour="bot-mode"]::before{display:none !important;content:none !important}
+[data-hm-dock-grid] > [data-bh-tour="bot-mode"] .bh-panel-glyph,[data-hm-dock-grid] > [data-bh-tour="bot-mode"] .bh-bot-icon{position:absolute !important;left:50% !important;top:50% !important;bottom:auto !important;width:39px !important;height:39px !important;margin:0 !important;transform:translate(-50%,-50%) !important;transform-origin:center !important}
+[data-hm-dock-grid] > [data-bh-tour="bot-mode"] .bh-bot-icon img{width:39px !important;height:39px !important;object-fit:cover !important;object-position:center !important}
 [data-hm-dock-grid] > *{max-width:52px;overflow:hidden;white-space:nowrap}
-[data-hm-dock-grid] svg,[data-hm-dock-grid] img{width:28px;height:28px}
+[data-hm-dock-grid] svg,[data-hm-dock-grid] img{width:28px !important;height:28px !important}
 [data-hm-plugin-icon]{width:46px;height:46px;display:flex;align-items:center;justify-content:center;border-radius:10px;cursor:pointer;border:none;background:transparent;font-size:22px;padding:0}
 [data-hm-plugin-icon]:hover{background:rgba(255,255,255,.10)}`;
         document.head.appendChild(st);
@@ -764,7 +779,7 @@ window.__ModuleLoader__.load({
         const text = (el.textContent ?? "").trim();
         if (!text) return;
         // ★坞内条目全部压(不只名单里的):名单只用于"找坞"。
-        // 教训:只压名单条目时,"插件"这类后出现的条目没 title 还被格子裁字(管理员 10-18 反馈)
+        // 教训:只压名单条目时,"插件"这类后出现的条目没 title 还被格子裁字(主控 10-18 反馈)
         el.dataset.hmCompacted = "1";
         el.title = text;
         el.style.background = "transparent";
@@ -778,52 +793,24 @@ window.__ModuleLoader__.load({
         if (hid === 0) { delete el.dataset.hmCompacted; el.title = ""; }
       };
       const sweep = () => {
+        // DreamX 主侧栏精简:隐藏 Tobs/Tob 相关条目(仅 UI,不删名册或工作区数据)。
+        for (const head of document.querySelectorAll("[data-panel-head]")) {
+          const name = (head.innerText ?? head.textContent ?? "").split("\n", 1)[0].trim();
+          if (name !== "Tobs" && name !== "Tob") continue;
+          const folder = head.closest("[data-bot-folder], [data-bot-folder-root]");
+          if (folder && folder.style.display !== "none") folder.style.display = "none";
+        }
+        for (const row of document.querySelectorAll('[data-row-key^="workspace:"]')) {
+          const name = (row.innerText ?? "").split("\n", 1)[0].trim();
+          if (name === "Tob" && row.style.display !== "none") row.style.display = "none";
+        }
         const nav = findNav();
         if (!nav) return;
         if (!nav.dataset.hmDockized) {                      // 每 nav 实例只追加一次(永不重置)
           nav.dataset.hmDockized = "1";
           nav.setAttribute("data-hm-dock-grid", "");
-          nav.style.gridTemplateColumns = `repeat(${Math.max(4, nav.querySelectorAll(":scope > *").length + 3)}, 1fr)`;
-          const BOT_SVG = `<svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2v1.8"/><circle cx="12" cy="2.4" r="1.1"/><rect x="4.2" y="6" width="15.6" height="12.4" rx="3.4"/><circle cx="9.1" cy="11.8" r="1.25" fill="currentColor" stroke="none"/><circle cx="14.9" cy="11.8" r="1.25" fill="currentColor" stroke="none"/><path d="M9.4 15.4h5.2"/><path d="M4.2 10.2H2.6M21.4 10.2h-1.6"/></svg>`;
-          const add = (title, glyph, onOpen) => {
-            const b = document.createElement("button");
-            b.type = "button";
-            b.title = title;
-            b.dataset.hmPluginIcon = title;
-            b.innerHTML = glyph.trimStart().startsWith("<") ? glyph : `<span style="font-size:22px;line-height:1">${glyph}</span>`;
-            b.addEventListener("click", () => onOpen());
-            nav.appendChild(b);
-          };
-          // 顺序即排位:两个目标条目之后,机器人第三个(管理员最终确认:只加这一个,
-          // ⚡控制台/📋驾驶舱不进坞——它们已在聊天框输入区,不重复)
-          add("DeepSeekBot · Bot 团队(打开 DSB 实例)", BOT_SVG, async () => {
-            // 打开 DSB,地址栏全程无 token(2026-10-19):
-            // ①服务端出一次性登录 URL(token 只走已鉴权的 API 通道)
-            // ②隐藏 iframe 加载它 → DSB 种好自己的 auth cookie
-            // ③新标签打开干净地址。拿不到登录 URL 就直接开干净地址(DSB cookie 有效期内直通)。
-            const cleanGuess = `${location.protocol}//${location.hostname}:31967/`;
-            const openClean = (u) => window.open(u, "_blank", "noopener");
-            let login = null, clean = cleanGuess;
-            try {
-              const d = await call("/api/harness-mesh/dsb-open");
-              if (d?.ok) { login = d.url; clean = d.cleanUrl ?? cleanGuess; }
-            } catch { /* 旧服务端无此端点 */ }
-            if (!login) {
-              try {
-                const d = await call("/api/harness-mesh/nodes?dsb=1");  // 老实例 shim(路由表未含新端点)
-                if (d?.ok && d?.url) { login = d.url; clean = d.cleanUrl ?? cleanGuess; }
-              } catch { /* 没 token 可给 */ }
-            }
-            if (!login) { openClean(clean); return; }
-            let done = false;
-            const go = () => { if (done) return; done = true; try { f.remove(); } catch { /* 已摘 */ } openClean(clean); };
-            const f = document.createElement("iframe");
-            f.style.display = "none";
-            f.src = login;               // 先指 src 再入 DOM:否则空 iframe 的 about:blank onload 抢跑,把它提前摘掉(无头实测实踩)
-            f.onload = go;
-            setTimeout(go, 5000);  // 兜底:被 X-Frame-Options 拒也照开(cookie 通常已种上)
-            document.body.appendChild(f);
-          });
+          nav.style.gridTemplateColumns = `repeat(${COLS}, 1fr)`;
+          // DeepSeekBot 使用原生面板按钮，在同一 DSH 进程和页面内切换。
         }
         for (const el of nav.querySelectorAll("a, button, li, [role='treeitem'], [role='link']")) compactEntry(el);
       };
@@ -871,7 +858,7 @@ window.__ModuleLoader__.load({
       return {
         trigger: "@",
         name: "harness",
-        order: -10,   // 置顶(菜单按 order 升序,系统文件源是 0/1;管理员要求 harness 在顶部)
+        order: -10,   // 置顶(菜单按 order 升序,系统文件源是 0/1;主控要求 harness 在顶部)
         showGroupTitle: true,
         warm() { void warm(); },
         lexicon: () => warmNodes.filter((n) => !n.name.startsWith("fake-")).map((n) => n.name),
@@ -881,7 +868,7 @@ window.__ModuleLoader__.load({
           if (!state.enabled) return [];                       // 总开关关闭:不出候选
           if (warmNodes.length === 0) await warm();
           const q = (req.query ?? "").toLowerCase();
-          // 空 @ 也出节点候选,靠 order:-10 置顶(管理员要求:harness 在菜单顶部,
+          // 空 @ 也出节点候选,靠 order:-10 置顶(主控要求:harness 在菜单顶部,
           // 系统文件/子智能体/会话组在下方——不藏,只排最上)
           return warmNodes
             // fake-* 是回环测试资产(回归测试用),不进 @ 菜单(2026-10-18 菜单净化)
@@ -941,7 +928,7 @@ window.__ModuleLoader__.load({
           console.error("[harness-mesh]", label, "注册失败:", error);
         }
       };
-      // "S临时A项"并入菜单:输入栏的 project-hub 图标撤掉(管理员 10-18)
+      // "S临时A项"并入菜单:输入栏的 project-hub 图标撤掉(主控 10-18)
       try {
         if (typeof document !== "undefined" && !document.getElementById("hm-hide-hub-icon")) {
           const st = document.createElement("style");
@@ -950,7 +937,7 @@ window.__ModuleLoader__.load({
           document.head.appendChild(st);
         }
       } catch { /* 无 DOM 环境(单测)时跳过 */ }
-      // 菜单失焦自隐(管理员 10-18:对齐系统菜单——点外面就收):
+      // 菜单失焦自隐(主控 10-18:对齐系统菜单——点外面就收):
       // 捕获相监听,菜单开时点菜单外任意处即关;点菜单内/图标上不截走
       // (图标自己的 toggle、菜单项自己的逻辑照常跑)。
       safe("harness-mesh: menu-dismiss", () => {

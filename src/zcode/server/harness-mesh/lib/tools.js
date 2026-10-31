@@ -6,6 +6,7 @@
  *  - harness_result   结构化汇报
  */
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { createFsTools } from "./fs-tools.js";
 
 const NODE_SCHEMA = {
   type: "object",
@@ -265,5 +266,6 @@ export function createTools(state) {
         };
       },
     }),
+    ...createFsTools(),
   ];
 }

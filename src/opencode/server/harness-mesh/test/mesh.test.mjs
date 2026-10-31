@@ -37,8 +37,8 @@ class FakeAdapter {
     this.disposed = 0;
     ctrl.hooksOf.set(node.name, hooks);
   }
-  async newSession(cwd, model) {
-    ctrl.newSessionCalls.push({ node: this.node.name, cwd, model });
+  async newSession(cwd, model, thinking) {
+    ctrl.newSessionCalls.push({ node: this.node.name, cwd, model, thinking });
     if (ctrl.newSessionImpl) return ctrl.newSessionImpl(cwd, model);
     return `s-${++ctrl.sessionN}`;
   }
@@ -209,7 +209,7 @@ test("dispatch 正常路径:queued→running→succeeded + 结构化 result", as
   assert.match(task.task_id, /^t-\d{8}-[0-9a-f]{8}$/);
 
   await until(() => taskState(store, task.task_id) === "running", "running");
-  assert.deepEqual(ctrl.newSessionCalls, [{ node: "n1", cwd: "/tmp/work", model: "prov/override" }]);
+  assert.deepEqual(ctrl.newSessionCalls, [{ node: "n1", cwd: "/tmp/work", model: "prov/override", thinking: undefined }]);
   const runningSt = mesh.status(task.task_id);
   assert.equal(runningSt.progress.length, 5, "running 态可见最近事件");
   assert.equal(runningSt.state, "running");
@@ -248,6 +248,29 @@ test("dispatch:缺 model/origin/cwd 的默认值 + stopReason=cancelled → canc
   assert.equal(stored.model, null);
   assert.equal(ctrl.newSessionCalls[0].cwd, process.cwd(), "stdio 节点 cwd 缺省用主控 cwd");
   assert.equal(ctrl.newSessionCalls[0].model, null);
+});
+
+test("dispatch thinking 透传:task.thinking 落库且原样传给 adapter.newSession 第三参", async () => {
+  resetCtrl();
+  const { mesh, store, nodesStore } = makeEnv();
+  nodesStore.load({ n1: stdioNode("n1") });
+  ctrl.promptImpl = () => ({ stopReason: "end_turn" });
+  const t = await mesh.dispatch({ harness: "n1", prompt: "深入想", thinking: { configId: "effort", value: "high" } });
+  await until(() => taskState(store, t.task_id) === "succeeded", "终态");
+  assert.deepEqual(store.get(t.task_id).thinking, { configId: "effort", value: "high" }, "thinking 应写进任务记录");
+  assert.deepEqual(ctrl.newSessionCalls[0].thinking, { configId: "effort", value: "high" }, "透传给 newSession");
+  // 裸字符串形式也照传
+  resetCtrl();
+  ctrl.promptImpl = () => ({ stopReason: "end_turn" });
+  const t2 = await mesh.dispatch({ harness: "n1", prompt: "再想", thinking: "max" });
+  await until(() => taskState(store, t2.task_id) === "succeeded", "终态2");
+  assert.equal(ctrl.newSessionCalls[0].thinking, "max");
+  // 不传 thinking → newSession 第三参为 undefined,任务记录为 null
+  resetCtrl();
+  ctrl.promptImpl = () => ({ stopReason: "end_turn" });
+  const t3 = await mesh.dispatch({ harness: "n1", prompt: "普通" });
+  await until(() => taskState(store, t3.task_id) === "succeeded", "终态3");
+  assert.equal(ctrl.newSessionCalls[0].thinking, undefined);
 });
 
 test("dispatch 超时:注入短超时 → state=timeout 且调 adapter.cancel", async () => {

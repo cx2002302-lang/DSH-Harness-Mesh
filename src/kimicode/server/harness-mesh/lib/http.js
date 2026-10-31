@@ -48,6 +48,10 @@ export function registerRoutes(ctx, mesh, nodes) {
   };
 
   const routes = [
+    // R1 服务间鉴权说明:/api/mcp/harness-mesh(-admin)除 GUI cookie 外,另接受
+    // Authorization: Bearer <MESH_MCP_TOKEN>(env 未设置时该通道关闭)。放行闸门在
+    // 外层 dsh-client-connection requestRejection 的本地热修,/api 前缀网关统一校验;
+    // hot.js 对这两条路由做兜底二次校验(带错 token → 401)。路由注册表无需变化。
     ["/api/harness-mesh/nodes", ["GET", "POST"]],
     ["/api/harness-mesh/node", ["DELETE"]],
     ["/api/harness-mesh/dispatch", ["POST"]],

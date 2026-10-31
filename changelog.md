@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.4.0 — 2026-10-31
+
+- 思考档位全链:ACP thought_level 探测→桥 reasoningEfforts(pi-ai 枚举,none→off 别名)→网关 reasoning_effort 透传→set_config_option 落地;DSB 思考强度菜单零改动点亮;非法档 400 列可用档
+- 网格 LLM 网关:OpenAI 兼容 /llm/:node/v1/chat/completions;不支持会话选模型的节点自动降级默认重派
+- 模型桥网关模式:网格 · <节点名> 每节点一条目,目录与勾选 1:1
+- qoder 接入包公开:六档思考(none/low/medium/high/xhigh/max)+白名单防 CLI 静默丢档+孤儿进程作业对象兜底
+- capability-refresh 能力巡查:liveModels 探测/策展分离,思考档/模式落档;captain-loop 任务书循环+captain-guardian 哨兵
+- fs_* 团队文件服务器 8 工具(SMB,路径沙箱);MCP 服务间 Bearer 鉴权
+- wb-gateway-adapter v5.2.2:官方目录缓存带 pid+uuid 后缀,通配取最新(修升级后目录静默丢空)
+- 白名单上限 64→160;探测不再覆盖用户策展 models
+- 362 单测全绿;全仓五类敏感数据(密钥/内网/主机名/人名/用户路径)扫描为零
+
 ## v1.3.2 — 2026-10-21
 
 - wb-gateway 迁移官方 daemon 模式:`codebuddy daemon start --port 8080`(回环默认免密,生产建议显式密码);WorkBuddy 5.8.3 起 GUI 不再自动拉起 gateway,旧 5845 动态端口方式弃用;DEPLOY/README gateway 一节改写

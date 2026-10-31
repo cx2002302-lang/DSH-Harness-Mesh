@@ -60,7 +60,7 @@ def append_block(path, text):
 def main():
     args = [a for a in sys.argv[1:]]
     speaker = "WorkBuddy"
-    if args and args[-1] in ("WorkBuddy", "主控侧(DSH)", "qoder"):  # 发言人白名单;历史遗留人名已移除,如需兼容用环境变量注入(见 README)
+    if args and args[-1] in ("WorkBuddy", "主控侧(DSH)", "主控", "qoder"):
         speaker = args.pop()
     if args and args[0] == "-f":
         body = open(args[1], encoding="utf-8").read()

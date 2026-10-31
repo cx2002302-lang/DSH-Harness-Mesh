@@ -18,6 +18,34 @@ import { readFile, writeFile } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
 import { AGENT_METHODS, CLIENT_METHODS, PROTOCOL_VERSION, client, ndJsonStream } from "@agentclientprotocol/sdk";
 
+/** thinking 入参归一化:{configId,value} 或裸字符串 value(configId 留空由 session/new 结果补)。 */
+export function normalizeThinking(thinking) {
+  if (!thinking) return null;
+  if (typeof thinking === "string") return { configId: null, value: thinking };
+  if (typeof thinking !== "object") return null;
+  return {
+    configId: typeof thinking.configId === "string" && thinking.configId ? thinking.configId : null,
+    value: thinking.value,
+  };
+}
+
+/** 从 session/new 响应的 configOptions 提取思考档位(thought_level)与模式(mode)两类配置。
+ *  @returns {{thinking: object|null, modes: Array<object>}} */
+export function extractConfigOptions(res) {
+  const map = (entry) => ({
+    id: String(entry.id ?? ""),
+    name: String(entry.name ?? entry.id ?? ""),
+    currentValue: entry.currentValue ?? null,
+    options: (Array.isArray(entry.options) ? entry.options : [])
+      .map((o) => ({ value: o?.value, name: String(o?.name ?? o?.value ?? "") }))
+      .filter((o) => o.value != null),
+  });
+  const opts = Array.isArray(res?.configOptions) ? res.configOptions : [];
+  const tl = opts.find((o) => o?.category === "thought_level");
+  const modes = opts.filter((o) => o?.category === "mode" && Array.isArray(o.options)).map(map);
+  return { thinking: tl ? map(tl) : null, modes };
+}
+
 export class AcpStdioAdapter {
   /** @param node 规范化后的节点配置 { name, type, command, args, cwd, env }
    *  @param hooks { onSessionUpdate(params), resolvePermission(params) -> Promise<{action, reason?}>, onProcessExit(code) } */
@@ -134,7 +162,7 @@ export class AcpStdioAdapter {
     return reject ? { outcome: { outcome: "selected", optionId: reject.optionId } } : { outcome: { outcome: "cancelled" } };
   }
 
-  async newSession(cwd, model) {
+  async newSession(cwd, model, thinking) {
     await this.ensureRunning();
     const res = await this.connection.agent.request(AGENT_METHODS.session_new, { cwd, mcpServers: [] });
     this.lastSessionNewRes = res;  // listModels 探测用:availableModels/configOptions 在这个响应里
@@ -150,6 +178,24 @@ export class AcpStdioAdapter {
         throw new Error(`harness-mesh: 节点 ${this.node.name} 设置模型 ${effModel} 失败: ${String(error?.message ?? error)}`);
       }
     }
+    // 思考档位(2026-10-30):session/set_config_option {sessionId, configId, value}。
+    // thinking 形如 {configId:"effort", value:"high"};裸字符串时 configId 取第一个 thought_level 的 id。
+    const think = normalizeThinking(thinking);
+    if (think && think.value != null && think.value !== "") {
+      let configId = think.configId;
+      if (!configId) {
+        const tl = (res?.configOptions ?? []).find((o) => o?.category === "thought_level");
+        if (!tl?.id) {
+          throw new Error(`harness-mesh: 节点 ${this.node.name} 不支持思考档位(session/new 无 thought_level 配置),无法设置 thinking=${think.value}`);
+        }
+        configId = tl.id;
+      }
+      try {
+        await this.connection.agent.request("session/set_config_option", { sessionId: res.sessionId, configId, value: think.value });
+      } catch (error) {
+        throw new Error(`harness-mesh: 节点 ${this.node.name} 设置思考档位 ${configId}=${think.value} 失败: ${String(error?.message ?? error)}`);
+      }
+    }
     return res.sessionId;
   }
 
@@ -162,19 +208,36 @@ export class AcpStdioAdapter {
     // 两种形状都认:①标准 ACP res.models.availableModels;②opencode 方言 configOptions[category=model] 的 select(裸抓实测)
     const acp = res?.models?.availableModels ?? [];
     if (acp.length) {
+      const caps = extractConfigOptions(res);
       return {
         models: acp.map((m) => ({ modelId: String(m.modelId ?? ""), name: String(m.name ?? m.modelId ?? "") })).filter((m) => m.modelId),
         currentModelId: res?.models?.currentModelId ?? null,
+        thinking: caps.thinking,
+        modes: caps.modes,
       };
     }
     const opt = (res?.configOptions ?? []).find((o) => o?.category === "model" && Array.isArray(o.options));
     if (opt) {
+      const caps = extractConfigOptions(res);
       return {
         models: opt.options.map((o) => ({ modelId: String(o.value ?? ""), name: String(o.name ?? o.value ?? "") })).filter((m) => m.modelId),
         currentModelId: opt.currentValue ?? null,
+        thinking: caps.thinking,
+        modes: caps.modes,
       };
     }
-    return { models: [], currentModelId: null };
+    const caps = extractConfigOptions(res);
+    return { models: [], currentModelId: null, thinking: caps.thinking, modes: caps.modes };
+  }
+
+  /** 探测思考档位/模式配置(开临时会话读 session/new 的 configOptions,读完 cancel 释放)。
+   *  @returns {{thinking: {id,name,currentValue,options:[{value,name}]}, modes: Array<object>}|null} 无则 null */
+  async listThinking(cwd) {
+    const sessionId = await this.newSession(cwd ?? this.node.cwd ?? process.cwd(), null);
+    try { await this.cancel(sessionId); } catch { /* 尽力释放 */ }
+    const caps = extractConfigOptions(this.lastSessionNewRes ?? {});
+    if (!caps.thinking && !caps.modes.length) return null;
+    return caps;
   }
 
   /** 发起一轮 prompt;整个回合(含权限交互)完成后才 resolve。 */

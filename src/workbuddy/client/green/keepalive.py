@@ -28,10 +28,10 @@ from datetime import datetime
 
 
 def _default_base():
-    """被管的东西在仓库目录里；没有 mesh-guardian.py 的运行时副本目录一律视为非仓库目录。
-    发布版:字面量已移除,路径由 KA_BASE_DIR 指定,缺省按"和脚本同目录"处理。"""
+    """被管的东西在仓库目录里；C:\\wb-mesh 那份运行时副本也得指回来（那边没有 ann-agent/mesh-guardian）。
+    发布仓里这条字面量请删掉，靠 KA_BASE_DIR 或"和脚本同目录"的布局。"""
     here = os.path.dirname(os.path.abspath(__file__))
-    return here  # KA_BASE_DIR 可覆盖;缺省=脚本同目录(发布版不再回退硬编码路径)
+    return here if os.path.exists(os.path.join(here, "mesh-guardian.py")) else r"D:\MeshData\wb-green"
 
 
 BASE_DIR = os.environ.get("KA_BASE_DIR") or _default_base()
